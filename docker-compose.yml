@@ -26,6 +26,26 @@ services:
       DATABASE_URL: postgresql://kraft:kraft@db:5432/kraft_analyse
     ports:
       - "8000:8000"
+    volumes:
+      # Shared with `scheduler` so a cron re-train shows up here without a
+      # restart — predict.py reloads a model when its file mtime changes.
+      - ./backend/app/ml:/app/app/ml
+    depends_on:
+      db:
+        condition: service_healthy
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: ops/scheduler/Dockerfile
+    container_name: kraft_analyse_scheduler
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://kraft:kraft@db:5432/kraft_analyse
+      ENTSOE_API_KEY: ${ENTSOE_API_KEY:-}
+      MET_FROST_CLIENT_ID: ${MET_FROST_CLIENT_ID:-}
+    volumes:
+      - ./backend/app/ml:/app/backend/app/ml
     depends_on:
       db:
         condition: service_healthy

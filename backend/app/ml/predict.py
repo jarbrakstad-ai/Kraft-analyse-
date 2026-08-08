@@ -8,7 +8,7 @@ from typing import Any
 import joblib
 import pandas as pd
 
-from .features import FEATURE_COLUMNS, build_prediction_frame
+from .features import build_prediction_frame
 from .train import DEFICIT_MODEL_PATH, MODEL_PATH
 
 _artifact_cache: dict[Path, tuple[float, dict[str, Any]]] = {}
@@ -74,7 +74,7 @@ def _build_feature_row(artifact: dict[str, Any], zone: str) -> tuple[date, pd.Da
         raise NoRecentDataError(f"No recent data for zone '{zone}' to build a prediction from.")
 
     based_on_day: date = pd.Timestamp(frame["day"].iloc[0]).date()
-    X = frame[FEATURE_COLUMNS].copy()
+    X = frame[artifact["feature_columns"]].copy()
     X["zone"] = X["zone"].astype("category").cat.set_categories(artifact["zone_categories"])
     return based_on_day, X
 
@@ -84,7 +84,7 @@ def predict_next_day_price(zone: str) -> dict[str, Any]:
     based_on_day, X = _build_feature_row(artifact, zone)
 
     predicted_price = float(artifact["model"].predict(X)[0])
-    missing_features = [col for col in FEATURE_COLUMNS if col != "zone" and bool(X[col].isna().iloc[0])]
+    missing_features = [col for col in artifact["feature_columns"] if col != "zone" and bool(X[col].isna().iloc[0])]
 
     return {
         "zone": zone,
@@ -106,7 +106,7 @@ def predict_next_day_deficit_for_zone(zone: str) -> dict[str, Any]:
     based_on_day, X = _build_feature_row(artifact, zone)
 
     predicted_balance = float(artifact["model"].predict(X)[0])
-    missing_features = [col for col in FEATURE_COLUMNS if col != "zone" and bool(X[col].isna().iloc[0])]
+    missing_features = [col for col in artifact["feature_columns"] if col != "zone" and bool(X[col].isna().iloc[0])]
 
     return {
         "zone": zone,

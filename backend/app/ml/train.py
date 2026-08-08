@@ -64,8 +64,18 @@ def train_one(df: pd.DataFrame, target_column: str, model_path: Path, metric_uni
     print(f"[{label}] Training on {len(train_df)} rows ({usable['day'].min()} to {train_df['day'].max()}), "
           f"holding out {len(test_df)} rows ({test_df['day'].min() if len(test_df) else '—'} to {usable['day'].max()})")
 
-    X_train, y_train = train_df[FEATURE_COLUMNS], train_df[target_column]
-    X_test, y_test = test_df[FEATURE_COLUMNS], test_df[target_column]
+    # A feature that's entirely NaN across every training row carries no
+    # information and crashes HistGradientBoosting's binning step (it can
+    # happen for real: a fresh deployment may not have reservoir/weather
+    # data yet for every zone). Drop those, keep everything else NaN as-is —
+    # the model still handles per-row missingness natively.
+    feature_columns = [c for c in FEATURE_COLUMNS if c == "zone" or not train_df[c].isna().all()]
+    dropped = [c for c in FEATURE_COLUMNS if c not in feature_columns]
+    if dropped:
+        print(f"[{label}] Dropping feature(s) with no data at all in the training set: {dropped}")
+
+    X_train, y_train = train_df[feature_columns], train_df[target_column]
+    X_test, y_test = test_df[feature_columns], test_df[target_column]
 
     model = HistGradientBoostingRegressor(categorical_features="from_dtype", random_state=42)
     model.fit(X_train, y_train)
@@ -88,13 +98,13 @@ def train_one(df: pd.DataFrame, target_column: str, model_path: Path, metric_uni
 
     print(f"[{label}] Computing permutation feature importance on the training set...")
     imp = permutation_importance(model, X_train, y_train, n_repeats=5, random_state=42, n_jobs=-1)
-    importances = sorted(zip(FEATURE_COLUMNS, imp.importances_mean), key=lambda x: -x[1])
+    importances = sorted(zip(feature_columns, imp.importances_mean), key=lambda x: -x[1])
     for name, value in importances[:8]:
         print(f"  {name}: {value:.3f}")
 
     artifact = {
         "model": model,
-        "feature_columns": FEATURE_COLUMNS,
+        "feature_columns": feature_columns,
         "zone_categories": list(df["zone"].cat.categories),
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "n_training_rows": len(train_df),

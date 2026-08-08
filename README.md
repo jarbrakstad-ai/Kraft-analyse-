@@ -21,6 +21,8 @@ Første leveranse (steg 1 av flere):
 - [x] Prisprediksjonsmodell (gradient boosting, neste dags pris per sone)
 - [x] Ingest + backend for forbruk (ENTSO-E Actual Total Load)
 - [x] Kraftbalanse (produksjon − forbruk): historisk + neste dags prediksjon for Norge og sporede europeiske soner
+- [x] Scenario-fane: fremskrivning 1-5 år frem med brukerstyrte vekstrater, inkl. "med vs. uten utbygging"-sammenligning
+- [x] Automatisert ingest + periodisk re-trening via cron (`ops/scheduler/`)
 
 ## Repo-struktur
 
@@ -44,6 +46,7 @@ Kraft-analyse-/
 │   ├── fetch_reservoir.py  # Henter magasinfylling fra NVE og lagrer i DB + CSV
 │   ├── fetch_weather.py    # Henter værobservasjoner og lagrer i DB + CSV
 │   ├── plot_prices.py      # Genererer interaktiv graf over siste N dager
+│   ├── run_all.py          # Kjører alle fetch_*.py-scriptene samlet (brukes av cron-jobben)
 │   └── output/              # Genererte CSV/HTML (ikke i git)
 ├── db/
 │   └── schema.sql      # TimescaleDB-skjema (pris, produksjon, flyt, magasin, vær, forbruk)
@@ -87,8 +90,13 @@ Kraft-analyse-/
 │   │                                # ZoneMap (delt skjematisk kart), BalanceMapSection
 │   ├── package.json
 │   └── Dockerfile
+├── ops/
+│   └── scheduler/       # Docker-image med cron: kjører run_all.py daglig og app.ml.train ukentlig
+│       ├── Dockerfile
+│       ├── crontab
+│       └── entrypoint.sh
 ├── docs/               # Notater og dokumentasjon
-├── docker-compose.yml  # TimescaleDB + backend + frontend lokalt
+├── docker-compose.yml  # TimescaleDB + backend + frontend + scheduler lokalt
 └── .env.example
 ```
 
@@ -367,6 +375,54 @@ Frontend blir da tilgjengelig på http://localhost:5173 (bygget statisk og
 servert via nginx), backend på http://localhost:8000, begge koblet mot
 `db`-tjenesten.
 
+### 15. Automatisk ingest + re-trening (cron)
+
+`docker compose up -d` starter også en `scheduler`-tjeneste
+(`ops/scheduler/`) — et lite Docker-image med `cron` som kjører uten at
+noen trenger å logge inn og kjøre scriptene manuelt:
+
+- **Daglig kl. 03:00 UTC**: `ingest/run_all.py --days 2` — kjører alle seks
+  `fetch_*.py`-scriptene på rad. `--days 2` overlapper forrige kjøring med
+  vilje (alle databaseskriv er upserts på `(zone, timestamp, source)`,
+  så det er trygt å hente samme time to ganger — en forsinket/glemt time
+  reparerer seg selv neste natt).
+- **Ukentlig, søndag kl. 04:00 UTC**: `python -m app.ml.train` — trener
+  begge modellene på nytt på den ferskeste dataen. Modellfilene
+  (`backend/app/ml/*.joblib`) deles mellom `scheduler`- og
+  `backend`-containeren via en bind mount, så `backend` plukker opp den nye
+  modellen automatisk (den sjekker filens endringstidspunkt ved hver
+  prediksjon) — ingen restart nødvendig.
+
+`scheduler` trenger de samme miljøvariablene som ingest-scriptene
+(`ENTSOE_API_KEY`, `MET_FROST_CLIENT_ID`) — sett dem i en `.env`-fil i
+repo-roten (samme som `.env.example`), så plukker `docker compose` dem opp
+automatisk. NVE-henting (`fetch_reservoir.py`) trenger ingen nøkkel og
+kjører uansett.
+
+For å kjøre en jobb manuelt (f.eks. for å teste, eller bootstrappe historikk
+før første cron-kjøring):
+
+```bash
+docker compose exec scheduler python3 /app/ingest/run_all.py --days 30
+docker compose exec scheduler sh -c "cd /app/backend && python3 -m app.ml.train"
+```
+
+Logger fra begge jobbene havner i `/var/log/cron.log` inni containeren og
+strømmes til `docker compose logs -f scheduler`. Tidspunktene er satt i
+`ops/scheduler/crontab` — juster der og bygg containeren på nytt
+(`docker compose build scheduler`) om du vil ha en annen frekvens.
+
+Under utvikling av denne funksjonen ble en reell bug i tidligere
+`train.py` funnet og fikset: en feature som er 100 % NaN i hele
+treningssettet (f.eks. `fill_percent`/`temp_avg` for soner uten
+magasin-/værdata ennå) fikk `HistGradientBoostingRegressor` til å krasje i
+nyere scikit-learn-versjoner. `train_one()` dropper nå slike helt-tomme
+features før trening (og lagrer den faktiske feature-listen i
+`model.joblib`, som `predict.py` nå leser derfra i stedet for en fast
+konstant) — viktig for at en automatisk, ubevoktet ukentlig re-trening
+faktisk er pålitelig fra dag én, før alle datakilder har rukket å fylles
+opp for alle soner.
+
 ## Datakilder
 
 | Kilde | Bruk | Krever nøkkel? |
@@ -415,11 +471,10 @@ servert via nginx), backend på http://localhost:8000, begge koblet mot
 
 - Verifisere `nve/client.py` og `met/client.py` mot ekte API-svar (se
   merknader i steg 10 og 11 over) og justere feltnavn/stasjons-ID-er ved behov
-- Kjøre ingest-scriptene jevnlig (cron/scheduler) slik at dashboardet viser
-  ferske data i stedet for manuelt genererte øyeblikksbilder — dette gir
-  også prediksjonsmodellene ekte historikk å trene på
-- Sette opp periodisk re-trening av modellene (f.eks. ukentlig cron-jobb
-  som kjører `python -m app.ml.train` etter at ingest har kjørt)
+- Sette API-nøkler i `.env` og starte `scheduler`-tjenesten i produksjon
+  (se steg 15) slik at dashboardet viser ferske data i stedet for manuelt
+  genererte øyeblikksbilder — dette gir også prediksjonsmodellene ekte
+  historikk å trene på
 - Utvide "EU"-aggregatet i `/deficit` utover de fem sporede sonene
   (DE_LU, DK1, DK2, NL, SE3) hvis bredere europeisk dekning blir viktig —
   krever ingest for flere soner, ikke bare en kodeendring

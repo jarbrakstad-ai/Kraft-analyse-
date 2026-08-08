@@ -1,0 +1,14 @@
+# Kraft-analyse scheduled jobs. All times are UTC (container default).
+# Env vars aren't inherited by cron jobs automatically, so each line sources
+# /app/cron.env first — see entrypoint.sh, which dumps the container's
+# environment there on startup.
+#
+# m h dom mon dow user  command
+
+# Ingest, daily at 03:00 UTC — refetches the trailing 2 days (overlap so a
+# missed/delayed hour self-heals; all DB writes are upserts, safe to re-run).
+0 3 * * *   root  . /app/cron.env; cd /app/ingest && python3 run_all.py --days 2 >> /var/log/cron.log 2>&1
+
+# Re-train, weekly on Sunday at 04:00 UTC — after that night's ingest run,
+# so the models train on the freshest data.
+0 4 * * 0   root  . /app/cron.env; cd /app/backend && python3 -m app.ml.train >> /var/log/cron.log 2>&1
