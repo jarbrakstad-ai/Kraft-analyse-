@@ -394,6 +394,35 @@ code {
   margin-top: 4px;
 }
 
+.growth-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+  max-width: 420px;
+}
+
+.growth-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.growth-slider-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.growth-slider-label strong {
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.growth-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 @media (max-width: 640px) {
   .app-header {
     flex-direction: column;

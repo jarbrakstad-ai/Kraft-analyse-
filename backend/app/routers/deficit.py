@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..db import get_cursor
 from ..ml.predict import ModelNotTrainedError, NoRecentDataError, get_deficit_model_info, predict_next_day_deficit_for_zone
-from ..schemas import BalancePoint, DeficitForecast, DeficitForecastZone, DeficitSummary, ModelInfo
+from ..schemas import BalancePoint, DeficitForecast, DeficitForecastZone, DeficitSummary, ModelInfo, ScenarioForecast, ScenarioYear
 from ..zones import AGGREGATE_ZONE_GROUPS, validate_zone_or_aggregate
 
 router = APIRouter(prefix="/deficit", tags=["deficit"])
@@ -124,6 +124,78 @@ def get_deficit_forecast(
         is_aggregate=is_aggregate,
         zone_breakdown=breakdown,
         model_trained_at=model_trained_at,
+    )
+
+
+@router.get("/scenario", response_model=ScenarioForecast)
+def get_deficit_scenario(
+    zone: str = Query(..., description="Zone code (e.g. NO1), or an aggregate: 'NO' (NO1-NO5) or 'EU' (tracked European zones)."),
+    consumption_growth_pct: float = Query(2.0, ge=-20, le=50, description="Assumed consumption growth, percent per year."),
+    production_growth_pct: float = Query(0.0, ge=-20, le=50, description="Assumed production growth, percent per year."),
+    years: int = Query(5, ge=1, le=5, description="How many years to project forward."),
+    baseline_days: int = Query(30, ge=7, le=365, description="Trailing days of actual data averaged to form the baseline."),
+):
+    """
+    A deterministic what-if projection of supply/demand balance 1-5 years
+    out, NOT a machine-learning prediction — the day-ahead model has no
+    meaningful signal that far out. Takes the average actual production
+    and consumption over the trailing `baseline_days`, then compounds
+    each forward at its own yearly growth rate. Year 0 is the baseline
+    itself; year N is baseline * (1 + rate/100)^N. Adjust the growth
+    rates to explore different assumptions — there's no single "correct"
+    forecast baked in here.
+    """
+    validate_zone_or_aggregate(zone)
+    zones = _zones_for(zone)
+
+    start = datetime.now(timezone.utc) - timedelta(days=baseline_days)
+    query = """
+        WITH hourly_prod AS (
+            SELECT timestamp_utc, sum(quantity_mw) AS production_mw
+            FROM production_per_source
+            WHERE zone = ANY(%(zones)s) AND timestamp_utc >= %(start)s
+            GROUP BY timestamp_utc
+        ),
+        hourly_cons AS (
+            SELECT timestamp_utc, sum(load_mw) AS load_mw
+            FROM consumption
+            WHERE zone = ANY(%(zones)s) AND timestamp_utc >= %(start)s
+            GROUP BY timestamp_utc
+        )
+        SELECT avg(hourly_prod.production_mw) AS avg_production_mw, avg(hourly_cons.load_mw) AS avg_load_mw
+        FROM hourly_prod
+        JOIN hourly_cons ON hourly_cons.timestamp_utc = hourly_prod.timestamp_utc
+    """
+    params = {"zones": zones, "start": start}
+
+    with get_cursor() as cur:
+        cur.execute(query, params)
+        row = cur.fetchone()
+
+    if row is None or row["avg_production_mw"] is None or row["avg_load_mw"] is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No overlapping production/consumption data for zone '{zone}' in the last {baseline_days} days "
+            f"to compute a baseline from.",
+        )
+
+    baseline_production = row["avg_production_mw"]
+    baseline_load = row["avg_load_mw"]
+
+    year_rows = []
+    for y in range(years + 1):
+        production_mw = baseline_production * (1 + production_growth_pct / 100) ** y
+        load_mw = baseline_load * (1 + consumption_growth_pct / 100) ** y
+        year_rows.append(ScenarioYear(year=y, production_mw=production_mw, load_mw=load_mw, balance_mw=production_mw - load_mw))
+
+    return ScenarioForecast(
+        zone=zone,
+        baseline_days=baseline_days,
+        baseline_production_mw=baseline_production,
+        baseline_load_mw=baseline_load,
+        consumption_growth_pct_per_year=consumption_growth_pct,
+        production_growth_pct_per_year=production_growth_pct,
+        years=year_rows,
     )
 
 

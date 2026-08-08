@@ -257,3 +257,29 @@ class DeficitForecast(BaseModel):
     zone_breakdown: list[DeficitForecastZone]
     model_trained_at: str
 
+
+class ScenarioYear(BaseModel):
+    year: int
+    production_mw: float
+    load_mw: float
+    balance_mw: float
+
+
+class ScenarioForecast(BaseModel):
+    """
+    A deterministic what-if projection, NOT a trained model prediction.
+    Baseline production/consumption (averaged over baseline_days) is
+    compounded forward at the given yearly growth rates. Useful for
+    exploring "what if demand grows N% per year" scenarios 1-5 years out
+    — a horizon far too long for the day-ahead ML model to say anything
+    meaningful about.
+    """
+
+    zone: str
+    baseline_days: int
+    baseline_production_mw: float
+    baseline_load_mw: float
+    consumption_growth_pct_per_year: float
+    production_growth_pct_per_year: float
+    years: list[ScenarioYear]
+

@@ -69,7 +69,7 @@ Kraft-analyse-/
 │   │       ├── weather.py     # /weather, /weather/latest
 │   │       ├── analysis.py    # /analysis/price-vs-production, /price-vs-reservoir, /price-spread-vs-flow, /price-vs-weather, /production-vs-weather
 │   │       ├── predict.py     # /predict/price, /predict/model-info
-│   │       └── deficit.py     # /deficit, /deficit/forecast, /deficit/model-info
+│   │       └── deficit.py     # /deficit, /deficit/forecast, /deficit/scenario, /deficit/model-info
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/            # React + TypeScript + Vite: interaktivt dashboard
@@ -78,12 +78,13 @@ Kraft-analyse-/
 │   │   ├── types.ts           # TS-typer som speiler backend sine Pydantic-modeller
 │   │   ├── constants.ts        # Sonefarger, sonelister, værvariabel-metadata
 │   │   ├── format.ts            # Pivot/formatteringshjelpere for Recharts
+│   │   ├── mapColors.ts          # Sone-layout + fargeskala, delt av kart-komponentene
 │   │   ├── useApiData.ts         # Fetch-hook med loading/error-håndtering
 │   │   ├── App.tsx                # Fane-navigasjon
 │   │   └── components/             # PriceSection, ProductionSection, FlowSection,
 │   │                                # ReservoirSection, WeatherSection, AnalysisSection,
-│   │                                # PredictionSection, DeficitSection,
-│   │                                # BalanceMapSection (skjematisk kart)
+│   │                                # PredictionSection, DeficitSection, ScenarioSection,
+│   │                                # ZoneMap (delt skjematisk kart), BalanceMapSection
 │   ├── package.json
 │   └── Dockerfile
 ├── docs/               # Notater og dokumentasjon
@@ -271,6 +272,7 @@ Endepunkter:
 | `GET /deficit?zone=NO1&start=...&end=...&limit=...` | Faktisk historisk kraftbalanse (produksjon − forbruk, MW), timesvis. `zone` kan være en enkeltsone eller aggregatene `NO` (NO1-NO5 samlet) / `EU` (sporede europeiske soner samlet) |
 | `GET /deficit/forecast?zone=NO1` | Predikert kraftbalanse neste dag. For `NO`/`EU` summeres individuelle soneprediksjon, vist i `zone_breakdown` |
 | `GET /deficit/model-info` | Metadata om balansemodellen: metrikker (MAE/RMSE i MW), feature-viktighet |
+| `GET /deficit/scenario?zone=NO1&consumption_growth_pct=2&production_growth_pct=0&years=5&baseline_days=30` | Deterministisk hva-hvis-fremskrivning 1-5 år frem — **ikke** en trent prediksjon. Snittproduksjon/-forbruk siste `baseline_days` dager vokser med de valgte årlige ratene |
 
 Alle `/analysis`-endepunkter returnerer både de justerte punktparene (for
 scatter-plot i frontend) og en `pearson_r`-verdi (`null` hvis færre enn 2
@@ -320,19 +322,31 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Dashboardet kjører nå på http://localhost:5173. Det har åtte faner —
+Dashboardet kjører nå på http://localhost:5173. Det har ni faner —
 Priser, Produksjon, Grenseflyt, Magasinfylling, Vær, Korrelasjon,
-Prediksjon og Kraftbalanse — som alle henter data fra backend-API-et.
-Kraftbalanse-fanen viser et **skjematisk kart** over alle ti prisområdene
-(NO1-NO5 + DE_LU, DK1, DK2, NL, SE3) farget etter predikert kraftbalanse
-neste dag (rødt = underskudd, grønt = overskudd — se
+Prediksjon, Kraftbalanse og Scenario 1-5 år — som alle henter data fra
+backend-API-et.
+
+Kraftbalanse-fanen viser et **skjematisk kart** over alle ti
+prisområdene (NO1-NO5 + DE_LU, DK1, DK2, NL, SE3) farget etter predikert
+kraftbalanse neste dag (rødt = underskudd, grønt = overskudd — se
 `BalanceMapSection.tsx`), samt historisk produksjon-vs-forbruk og en
 detaljert neste-dags-prediksjon for Norge samlet, europeiske soner
 samlet, eller enkeltsoner. Kartet er en forenklet skjematisk fremstilling
 med relative posisjoner (ikke ekte geografiske grenser) — presis
 kartografi for prisområdene var ikke tilgjengelig i miljøet dette ble
-bygget i. Uten data i databasen vises "Ingen data" i hver seksjon i
-stedet for en graf; det er ikke en feil.
+bygget i.
+
+Scenario-fanen (`ScenarioSection.tsx`) svarer på "hva om forbruket vokser
+X% i året" 1-5 år frem — **ikke** en ML-prediksjon (dagligmodellen har
+ingen mening så langt frem), men en transparent fremskrivning av dagens
+snittproduksjon/-forbruk med brukerstyrte vekstrater (glidebrytere for
+forbruksvekst og produksjonsvekst), med samme skjematiske kart (nå med en
+årsvelger) og en linjegraf over balanseutviklingen. Gjenbruker
+`ZoneMap.tsx` og `mapColors.ts` fra Kraftbalanse-fanen.
+
+Uten data i databasen vises "Ingen data" i hver seksjon i stedet for en
+graf; det er ikke en feil.
 
 Alternativt, kjør hele stacken (database + backend + frontend) med Docker:
 
@@ -376,12 +390,17 @@ servert via nginx), backend på http://localhost:8000, begge koblet mot
    sone, én predikerer neste dags kraftbalanse (produksjon minus forbruk)
    — negativ balanse er et predikert underskudd. Trenes sammen via
    `train.py`, serveres via `/predict` og `/deficit/forecast`.
-6. **Frontend/dashboard** (`frontend/`) — React + TypeScript + Vite +
+6. **Scenariolag** (`/deficit/scenario`) — en enkel deterministisk
+   fremskrivning, bevisst atskilt fra prediksjonslaget: dagens
+   snittproduksjon/-forbruk vokser med brukerstyrte årlige rater, 1-5 år
+   frem. Ingen trent modell involvert — dette er for langt frem til at
+   den daglige ML-modellen kan si noe meningsfullt.
+7. **Frontend/dashboard** (`frontend/`) — React + TypeScript + Vite +
    Recharts. Fane-basert: tidsserier for pris/produksjon/flyt/magasin/vær,
-   spredningsdiagram med Pearson-korrelasjon, prisprediksjon, og
-   kraftbalanse (historisk + prediksjon, pluss et skjematisk fargekodet
-   kart over alle ti sonene) for Norge og sporede europeiske soner, hver
-   med modell-metrikker og feature-viktighet.
+   spredningsdiagram med Pearson-korrelasjon, prisprediksjon, kraftbalanse
+   (historisk + prediksjon, pluss et skjematisk fargekodet kart over alle
+   ti sonene) og et scenario-verktøy med glidebrytere for vekstrater, hver
+   med modell-metrikker/feature-viktighet der det er relevant.
 
 ## Neste steg
 

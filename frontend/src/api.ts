@@ -13,6 +13,7 @@ import type {
   PriceWeatherCorrelation,
   ProductionMixShare,
   ReservoirPoint,
+  ScenarioForecast,
   WeatherPoint,
   ZoneInfo,
 } from "./types";
@@ -77,6 +78,14 @@ export const api = {
   deficit: (zone: string, days: number) => get<DeficitSummary>("/deficit", { zone, start: sinceDays(days) }),
   deficitForecast: (zone: string) => get<DeficitForecast>("/deficit/forecast", { zone }),
   deficitModelInfo: () => get<ModelInfo>("/deficit/model-info"),
+
+  deficitScenario: (zone: string, consumptionGrowthPct: number, productionGrowthPct: number, years: number) =>
+    get<ScenarioForecast>("/deficit/scenario", {
+      zone,
+      consumption_growth_pct: consumptionGrowthPct,
+      production_growth_pct: productionGrowthPct,
+      years,
+    }),
 };
 
 function sinceDays(days: number): string {

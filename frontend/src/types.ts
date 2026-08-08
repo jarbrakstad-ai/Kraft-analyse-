@@ -172,3 +172,20 @@ export interface DeficitForecast {
   zone_breakdown: DeficitForecastZone[];
   model_trained_at: string;
 }
+
+export interface ScenarioYear {
+  year: number;
+  production_mw: number;
+  load_mw: number;
+  balance_mw: number;
+}
+
+export interface ScenarioForecast {
+  zone: string;
+  baseline_days: number;
+  baseline_production_mw: number;
+  baseline_load_mw: number;
+  consumption_growth_pct_per_year: number;
+  production_growth_pct_per_year: number;
+  years: ScenarioYear[];
+}

@@ -15,6 +15,15 @@ export const ZONE_COLORS: Record<string, string> = {
 
 export const NORWEGIAN_ZONES = ["NO1", "NO2", "NO3", "NO4", "NO5"];
 export const EUROPEAN_ZONES = ["DE_LU", "DK1", "DK2", "NL", "SE3"];
+export const ALL_TRACKED_ZONES = [...NORWEGIAN_ZONES, ...EUROPEAN_ZONES];
+
+/** Zone selector options: real zones plus the "NO"/"EU" aggregates the /deficit endpoints accept. */
+export const DEFICIT_ZONE_OPTIONS = [
+  { value: "NO", label: "Norge (NO1-NO5 samlet)" },
+  ...NORWEGIAN_ZONES.map((z) => ({ value: z, label: z })),
+  { value: "EU", label: "Europa (sporede soner samlet)" },
+  ...EUROPEAN_ZONES.map((z) => ({ value: z, label: z })),
+];
 
 export const WEATHER_VARIABLES: { value: string; label: string; unit: string }[] = [
   { value: "temperature_c", label: "Temperatur", unit: "°C" },

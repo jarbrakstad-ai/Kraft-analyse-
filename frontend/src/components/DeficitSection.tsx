@@ -1,19 +1,14 @@
 import { useState } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
-import { EUROPEAN_ZONES, NORWEGIAN_ZONES } from "../constants";
+import { DEFICIT_ZONE_OPTIONS } from "../constants";
 import { formatDateTimeLabel, formatNumber, formatTimeAxis } from "../format";
 import { useApiData } from "../useApiData";
 import { Card } from "./Card";
 import { StatusBox } from "./StatusBox";
 import { BalanceMapSection } from "./BalanceMapSection";
 
-const ZONE_OPTIONS = [
-  { value: "NO", label: "Norge (NO1-NO5 samlet)" },
-  ...NORWEGIAN_ZONES.map((z) => ({ value: z, label: z })),
-  { value: "EU", label: "Europa (sporede soner samlet)" },
-  ...EUROPEAN_ZONES.map((z) => ({ value: z, label: z })),
-];
+const ZONE_OPTIONS = DEFICIT_ZONE_OPTIONS;
 const DAY_OPTIONS = [3, 7, 14, 30];
 
 function HistorySection() {

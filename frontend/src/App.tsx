@@ -9,8 +9,9 @@ import { WeatherSection } from "./components/WeatherSection";
 import { AnalysisSection } from "./components/AnalysisSection";
 import { PredictionSection } from "./components/PredictionSection";
 import { DeficitSection } from "./components/DeficitSection";
+import { ScenarioSection } from "./components/ScenarioSection";
 
-type Tab = "priser" | "produksjon" | "flyt" | "magasin" | "vaer" | "analyse" | "prediksjon" | "underskudd";
+type Tab = "priser" | "produksjon" | "flyt" | "magasin" | "vaer" | "analyse" | "prediksjon" | "underskudd" | "scenario";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "priser", label: "Priser" },
@@ -21,6 +22,7 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "analyse", label: "Korrelasjon" },
   { value: "prediksjon", label: "Prediksjon" },
   { value: "underskudd", label: "Kraftbalanse" },
+  { value: "scenario", label: "Scenario 1-5 år" },
 ];
 
 function HealthBadge() {
@@ -60,6 +62,7 @@ function App() {
         {tab === "analyse" && <AnalysisSection />}
         {tab === "prediksjon" && <PredictionSection />}
         {tab === "underskudd" && <DeficitSection />}
+        {tab === "scenario" && <ScenarioSection />}
       </main>
     </div>
   );
