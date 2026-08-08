@@ -4,15 +4,9 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..db import get_cursor
 from ..schemas import DailyAverage, LatestPrice, PricePoint, ZoneInfo
-from ..zones import VALID_ZONES, ZONE_NAMES
+from ..zones import ZONE_NAMES, validate_zone
 
 router = APIRouter(prefix="/prices", tags=["prices"])
-
-
-def _validate_zone(zone: str) -> str:
-    if zone not in VALID_ZONES:
-        raise HTTPException(status_code=404, detail=f"Unknown zone '{zone}'. Valid zones: {VALID_ZONES}")
-    return zone
 
 
 @router.get("/zones", response_model=list[ZoneInfo])
@@ -30,7 +24,7 @@ def get_prices(
 ):
     """Raw spot price time series, optionally filtered by zone and time range."""
     if zone is not None:
-        _validate_zone(zone)
+        validate_zone(zone)
 
     end = end or datetime.now(timezone.utc)
     start = start or end - timedelta(days=7)
@@ -80,7 +74,7 @@ def get_daily_average(
 ):
     """Daily average/min/max price per zone over the trailing N days."""
     if zone is not None:
-        _validate_zone(zone)
+        validate_zone(zone)
 
     query = """
         SELECT

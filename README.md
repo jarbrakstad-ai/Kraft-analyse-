@@ -124,6 +124,14 @@ Endepunkter:
 | `GET /prices?zone=NO1&start=...&end=...&limit=...` | Rå tidsserie, filtrert på sone/periode (default: siste 7 dager, maks 20 000 rader) |
 | `GET /prices/latest` | Siste prispunkt per sone |
 | `GET /prices/daily-average?zone=NO1&days=7` | Daglig snitt/min/maks per sone |
+| `GET /production/types?zone=NO1` | Distinkte produksjonstyper i databasen |
+| `GET /production?zone=NO1&production_type=hydro&start=...&end=...&limit=...` | Rå produksjonstidsserie (MW), filtrert på sone/type/periode |
+| `GET /production/latest?zone=NO1` | Siste produksjonstall per sone og type |
+| `GET /production/mix?zone=NO1&days=7` | Produksjonsmiks: snitt-MW og prosentandel per type, siste N dager |
+
+Merk: produksjonsendepunktene leser fra `production_per_source`-tabellen,
+som foreløpig ikke fylles av noe ingest-script — det kommer i et senere
+steg (ENTSO-E documentType A75, faktisk produksjon per produksjonstype).
 
 Alternativt, kjør hele stacken (database + backend) med Docker:
 
@@ -162,11 +170,12 @@ automatisk til `db`-tjenesten.
 
 ## Neste steg
 
-- Utvide ingest til produksjonsmiks (ENTSO-E documentType A75/A73/A74) og
-  cross-border flow (documentType A11)
+- Utvide ingest til produksjonsmiks (ENTSO-E documentType A75) og
+  cross-border flow (documentType A11) — `/production`-endepunktene i
+  backend er klare til å ta imot disse dataene
 - Sette opp Statnett-integrasjon for magasinfylling
-- Utvide backend-API-et med produksjon, flyt og magasinfylling etter hvert
-  som ingest dekker disse tabellene
+- Utvide backend-API-et med flyt og magasinfylling etter hvert som ingest
+  dekker disse tabellene
 - Bygge frontend-dashboard (foreslår React + Plotly/Recharts for rask
   iterasjon, eller Grafana koblet direkte mot TimescaleDB som raskere
   MVP-alternativ dersom du ikke trenger skreddersydd UI med det første)

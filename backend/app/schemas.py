@@ -27,3 +27,25 @@ class DailyAverage(BaseModel):
     avg_price_eur_mwh: float
     min_price_eur_mwh: float
     max_price_eur_mwh: float
+
+
+class ProductionPoint(BaseModel):
+    zone: str
+    timestamp_utc: datetime
+    production_type: str
+    quantity_mw: float
+
+
+class LatestProduction(BaseModel):
+    zone: str
+    production_type: str
+    timestamp_utc: datetime
+    quantity_mw: float
+
+
+class ProductionMixShare(BaseModel):
+    zone: str
+    production_type: str
+    avg_quantity_mw: float
+    share_percent: float
+

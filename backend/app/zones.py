@@ -19,3 +19,11 @@ ZONE_NAMES = {
 }
 
 VALID_ZONES = list(ZONE_NAMES.keys())
+
+
+def validate_zone(zone: str) -> str:
+    from fastapi import HTTPException
+
+    if zone not in VALID_ZONES:
+        raise HTTPException(status_code=404, detail=f"Unknown zone '{zone}'. Valid zones: {VALID_ZONES}")
+    return zone
