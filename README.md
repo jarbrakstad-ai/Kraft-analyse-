@@ -16,7 +16,7 @@ Første leveranse (steg 1 av flere):
 - [x] Ingest + backend for import/eksport-flyt på utenlandskabler
 - [x] Ingest + backend for magasinfylling (NVE)
 - [x] Ingest + backend for værdata (MET Norway)
-- [ ] Korrelasjonsanalyse
+- [x] Korrelasjonsanalyse (backend)
 - [ ] Interaktivt frontend-dashboard
 
 ## Repo-struktur
@@ -49,14 +49,16 @@ Kraft-analyse-/
 │   │   ├── config.py         # Settings (DATABASE_URL m.m.) via pydantic-settings
 │   │   ├── db.py             # psycopg2 connection pool
 │   │   ├── zones.py          # Sone-metadata (kode -> navn) + validate_zone()
-│   │   ├── interconnectors.py # Utenlandskabel-metadata (navn -> sonepar)
+│   │   ├── interconnectors.py # Utenlandskabel-metadata (navn -> sonepar) + validate_interconnector()
+│   │   ├── stats.py          # pearson_r() — delt av /analysis-endepunktene
 │   │   ├── schemas.py        # Pydantic-responsmodeller
 │   │   └── routers/
 │   │       ├── prices.py      # /prices, /prices/latest, /prices/daily-average, /prices/zones
 │   │       ├── production.py  # /production, /production/latest, /production/mix, /production/types
 │   │       ├── flow.py        # /flow, /flow/latest, /flow/daily-average, /flow/interconnectors
 │   │       ├── reservoir.py   # /reservoir, /reservoir/latest
-│   │       └── weather.py     # /weather, /weather/latest
+│   │       ├── weather.py     # /weather, /weather/latest
+│   │       └── analysis.py    # /analysis/price-vs-production, /price-vs-reservoir, /price-spread-vs-flow, /price-vs-weather, /production-vs-weather
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/           # (kommer) interaktivt dashboard
@@ -221,6 +223,15 @@ Endepunkter:
 | `GET /reservoir/latest` | Siste fyllingsgrad per sone, inkl. nasjonalt aggregat ("NO") |
 | `GET /weather?zone=NO1&start=...&end=...&limit=...` | Rå værobservasjoner (temperatur, vind, nedbør), filtrert på sone/periode |
 | `GET /weather/latest` | Siste værobservasjon per sone |
+| `GET /analysis/price-vs-production?zone=NO1&production_type=hydro&days=30` | Pris vs. produksjon av en gitt type, timesvis, med Pearson-korrelasjon |
+| `GET /analysis/price-vs-reservoir?zone=NO1&weeks=52` | Ukentlig snittpris vs. magasinfylling, med Pearson-korrelasjon |
+| `GET /analysis/price-spread-vs-flow?zone_a=NO2&zone_b=NL&interconnector=NorNed&days=30` | Prisdifferanse mellom to soner vs. netto kabelflyt, med Pearson-korrelasjon |
+| `GET /analysis/price-vs-weather?zone=NO1&weather_variable=wind_speed_ms&days=30` | Pris vs. værvariabel (temperature_c/wind_speed_ms/precipitation_mm), med Pearson-korrelasjon |
+| `GET /analysis/production-vs-weather?zone=NO1&production_type=wind_onshore&weather_variable=wind_speed_ms&days=30` | Produksjon av en gitt type vs. værvariabel, med Pearson-korrelasjon |
+
+Alle `/analysis`-endepunkter returnerer både de justerte punktparene (for
+scatter-plot i frontend) og en `pearson_r`-verdi (`null` hvis færre enn 2
+punkter eller ingen varians i en av seriene).
 
 Alternativt, kjør hele stacken (database + backend) med Docker:
 
@@ -254,9 +265,9 @@ automatisk til `db`-tjenesten.
    og forbruk — alle med sone + timestamp som nøkkel.
 3. **Backend/API** (`backend/`) — REST- eller GraphQL-API som eksponerer
    rå og aggregerte tidsserier til frontend.
-4. **Analyselag** — funksjoner for korrelasjon: pris vs. produksjonsmiks,
-   pris vs. fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt,
-   produksjon/pris vs. værvariabler (temperatur, vind, nedbør).
+4. **Analyselag** (`backend/app/routers/analysis.py`) — Pearson-korrelasjon
+   mellom pris vs. produksjonsmiks, pris vs. fyllingsgrad, prisdifferanse
+   mellom soner vs. kabelflyt, og produksjon/pris vs. værvariabler.
 5. **Frontend/dashboard** (`frontend/`) — interaktive grafer: tidsserier,
    scatter for korrelasjon, sone-sammenligning.
 
@@ -264,10 +275,7 @@ automatisk til `db`-tjenesten.
 
 - Verifisere `nve/client.py` og `met/client.py` mot ekte API-svar (se
   merknader i steg 9 og 10 over) og justere feltnavn/stasjons-ID-er ved behov
-- Bygge et enkelt korrelasjonslag (pris vs. produksjonsmiks, pris vs.
-  fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt, produksjon/pris
-  vs. værvariabler) — enten som egne backend-endepunkter eller beregnet i
-  frontend fra rådataene
 - Bygge frontend-dashboard (foreslår React + Plotly/Recharts for rask
   iterasjon, eller Grafana koblet direkte mot TimescaleDB som raskere
-  MVP-alternativ dersom du ikke trenger skreddersydd UI med det første)
+  MVP-alternativ dersom du ikke trenger skreddersydd UI med det første) —
+  `/analysis`-endepunktene er klare til å drive scatter-plottene

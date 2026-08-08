@@ -3,17 +3,11 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Query
 
 from ..db import get_cursor
-from ..interconnectors import INTERCONNECTORS, VALID_INTERCONNECTORS
+from ..interconnectors import INTERCONNECTORS, validate_interconnector
 from ..schemas import FlowDailyAverage, FlowPoint, InterconnectorInfo, LatestFlow
 from ..zones import validate_zone
 
 router = APIRouter(prefix="/flow", tags=["flow"])
-
-
-def _validate_interconnector(name: str) -> str:
-    if name not in VALID_INTERCONNECTORS:
-        raise HTTPException(status_code=404, detail=f"Unknown interconnector '{name}'. Valid values: {VALID_INTERCONNECTORS}")
-    return name
 
 
 @router.get("/interconnectors", response_model=list[InterconnectorInfo])
@@ -37,7 +31,7 @@ def get_flow(
     if to_zone is not None:
         validate_zone(to_zone)
     if interconnector is not None:
-        _validate_interconnector(interconnector)
+        validate_interconnector(interconnector)
 
     end = end or datetime.now(timezone.utc)
     start = start or end - timedelta(days=7)
@@ -77,7 +71,7 @@ def get_flow(
 def get_latest_flow(interconnector: str | None = Query(None, description="Interconnector name, e.g. 'NorNed'.")):
     """Most recent flow point per zone-pair direction."""
     if interconnector is not None:
-        _validate_interconnector(interconnector)
+        validate_interconnector(interconnector)
 
     query = """
         SELECT DISTINCT ON (from_zone, to_zone) from_zone, to_zone, interconnector, timestamp_utc, flow_mw
@@ -105,7 +99,7 @@ def get_daily_average_flow(
 ):
     """Daily average flow (MW) per zone-pair direction over the trailing N days."""
     if interconnector is not None:
-        _validate_interconnector(interconnector)
+        validate_interconnector(interconnector)
 
     query = """
         SELECT

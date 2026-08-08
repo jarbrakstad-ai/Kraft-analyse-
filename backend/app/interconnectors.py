@@ -13,3 +13,11 @@ INTERCONNECTORS = {
 }
 
 VALID_INTERCONNECTORS = list(INTERCONNECTORS.keys())
+
+
+def validate_interconnector(name: str) -> str:
+    from fastapi import HTTPException
+
+    if name not in VALID_INTERCONNECTORS:
+        raise HTTPException(status_code=404, detail=f"Unknown interconnector '{name}'. Valid values: {VALID_INTERCONNECTORS}")
+    return name

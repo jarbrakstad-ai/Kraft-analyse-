@@ -110,3 +110,73 @@ class LatestWeather(BaseModel):
     wind_speed_ms: float | None
     precipitation_mm: float | None
 
+
+class PriceProductionPoint(BaseModel):
+    timestamp_utc: datetime
+    price_eur_mwh: float
+    quantity_mw: float
+
+
+class PriceProductionCorrelation(BaseModel):
+    zone: str
+    production_type: str
+    n: int
+    pearson_r: float | None
+    points: list[PriceProductionPoint]
+
+
+class PriceReservoirPoint(BaseModel):
+    week_start_utc: datetime
+    avg_price_eur_mwh: float
+    fill_percent: float
+
+
+class PriceReservoirCorrelation(BaseModel):
+    zone: str
+    n: int
+    pearson_r: float | None
+    points: list[PriceReservoirPoint]
+
+
+class PriceSpreadFlowPoint(BaseModel):
+    timestamp_utc: datetime
+    price_spread_eur_mwh: float
+    net_flow_mw: float
+
+
+class PriceSpreadFlowCorrelation(BaseModel):
+    zone_a: str
+    zone_b: str
+    n: int
+    pearson_r: float | None
+    points: list[PriceSpreadFlowPoint]
+
+
+class PriceWeatherPoint(BaseModel):
+    timestamp_utc: datetime
+    price_eur_mwh: float
+    weather_value: float
+
+
+class PriceWeatherCorrelation(BaseModel):
+    zone: str
+    weather_variable: str
+    n: int
+    pearson_r: float | None
+    points: list[PriceWeatherPoint]
+
+
+class ProductionWeatherPoint(BaseModel):
+    timestamp_utc: datetime
+    quantity_mw: float
+    weather_value: float
+
+
+class ProductionWeatherCorrelation(BaseModel):
+    zone: str
+    production_type: str
+    weather_variable: str
+    n: int
+    pearson_r: float | None
+    points: list[ProductionWeatherPoint]
+
