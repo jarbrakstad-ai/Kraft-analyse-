@@ -11,11 +11,12 @@ Første leveranse (steg 1 av flere):
 - [x] Repo-struktur (`ingest/`, `backend/`, `frontend/`, `db/`, `docs/`)
 - [x] Ingest-script som henter dagens spotpriser for NO1-NO5 + DE/DK1/DK2/NL/SE3 fra ENTSO-E
 - [x] Enkel graf over prisene siste 7 dager
+- [x] FastAPI-backend for spotprisdataene
 - [ ] Produksjonsmiks per sone
 - [ ] Magasinfylling
 - [ ] Import/eksport-flyt på utenlandskabler
 - [ ] Korrelasjonsanalyse
-- [ ] Backend API + interaktivt frontend-dashboard
+- [ ] Interaktivt frontend-dashboard
 
 ## Repo-struktur
 
@@ -30,10 +31,20 @@ Kraft-analyse-/
 │   └── output/          # Genererte CSV/HTML (ikke i git)
 ├── db/
 │   └── schema.sql      # TimescaleDB-skjema (pris, produksjon, flyt, magasin, forbruk)
-├── backend/            # (kommer) REST/GraphQL API
+├── backend/            # FastAPI: REST-API for spotprisdataene
+│   ├── app/
+│   │   ├── main.py      # App-oppsett, CORS, /health
+│   │   ├── config.py    # Settings (DATABASE_URL m.m.) via pydantic-settings
+│   │   ├── db.py        # psycopg2 connection pool
+│   │   ├── zones.py     # Sone-metadata (kode -> navn)
+│   │   ├── schemas.py   # Pydantic-responsmodeller
+│   │   └── routers/
+│   │       └── prices.py  # /prices, /prices/latest, /prices/daily-average, /prices/zones
+│   ├── requirements.txt
+│   └── Dockerfile
 ├── frontend/           # (kommer) interaktivt dashboard
 ├── docs/               # Notater og dokumentasjon
-├── docker-compose.yml  # TimescaleDB lokalt
+├── docker-compose.yml  # TimescaleDB + backend lokalt
 └── .env.example
 ```
 
@@ -89,6 +100,40 @@ python plot_prices.py
 Åpne `output/prices_chart.html` i en nettleser for å se en interaktiv
 tidsserie-graf med alle sonene siste 7 dager.
 
+### 7. Start backend-API
+
+Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5).
+
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+API-et kjører nå på http://localhost:8000, med interaktiv dokumentasjon på
+http://localhost:8000/docs. Konfigurasjon (DATABASE_URL) leses fra samme
+`.env`-fil som ingest-scriptene.
+
+Endepunkter:
+
+| Endepunkt | Beskrivelse |
+|---|---|
+| `GET /health` | Liveness + DB-tilkoblingsstatus |
+| `GET /prices/zones` | Liste over tilgjengelige soner (kode + navn) |
+| `GET /prices?zone=NO1&start=...&end=...&limit=...` | Rå tidsserie, filtrert på sone/periode (default: siste 7 dager, maks 20 000 rader) |
+| `GET /prices/latest` | Siste prispunkt per sone |
+| `GET /prices/daily-average?zone=NO1&days=7` | Daglig snitt/min/maks per sone |
+
+Alternativt, kjør hele stacken (database + backend) med Docker:
+
+```bash
+docker compose up -d
+```
+
+Backend blir da tilgjengelig på http://localhost:8000 og kobler seg
+automatisk til `db`-tjenesten.
+
 ## Datakilder
 
 | Kilde | Bruk | Krever nøkkel? |
@@ -120,8 +165,8 @@ tidsserie-graf med alle sonene siste 7 dager.
 - Utvide ingest til produksjonsmiks (ENTSO-E documentType A75/A73/A74) og
   cross-border flow (documentType A11)
 - Sette opp Statnett-integrasjon for magasinfylling
-- Bygge backend API (foreslår FastAPI — passer naturlig med Python-ingest og
-  gir automatisk OpenAPI-dokumentasjon)
+- Utvide backend-API-et med produksjon, flyt og magasinfylling etter hvert
+  som ingest dekker disse tabellene
 - Bygge frontend-dashboard (foreslår React + Plotly/Recharts for rask
   iterasjon, eller Grafana koblet direkte mot TimescaleDB som raskere
   MVP-alternativ dersom du ikke trenger skreddersydd UI med det første)
