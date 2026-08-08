@@ -12,7 +12,7 @@ Første leveranse (steg 1 av flere):
 - [x] Ingest-script som henter dagens spotpriser for NO1-NO5 + DE/DK1/DK2/NL/SE3 fra ENTSO-E
 - [x] Enkel graf over prisene siste 7 dager
 - [x] FastAPI-backend for spotprisdataene
-- [ ] Produksjonsmiks per sone
+- [x] Ingest + backend for produksjonsmiks per sone
 - [ ] Magasinfylling
 - [ ] Import/eksport-flyt på utenlandskabler
 - [ ] Korrelasjonsanalyse
@@ -24,22 +24,25 @@ Første leveranse (steg 1 av flere):
 Kraft-analyse-/
 ├── ingest/           # Python: henter data fra ENTSO-E/Statnett og lagrer i DB/CSV
 │   ├── entsoe/
-│   │   ├── client.py   # ENTSO-E API-klient (XML-parsing, retry/rate-limit)
-│   │   └── zones.py    # Bidding zone -> EIC-kode mapping
-│   ├── fetch_prices.py # Henter day-ahead spotpriser og lagrer i DB + CSV
-│   ├── plot_prices.py  # Genererer interaktiv graf over siste N dager
-│   └── output/          # Genererte CSV/HTML (ikke i git)
+│   │   ├── client.py           # ENTSO-E API-klient (XML-parsing, retry/rate-limit)
+│   │   ├── zones.py            # Bidding zone -> EIC-kode mapping
+│   │   └── production_types.py # PSR-typekode -> lesbar produksjonstype
+│   ├── fetch_prices.py     # Henter day-ahead spotpriser og lagrer i DB + CSV
+│   ├── fetch_production.py # Henter produksjon per type og lagrer i DB + CSV
+│   ├── plot_prices.py      # Genererer interaktiv graf over siste N dager
+│   └── output/              # Genererte CSV/HTML (ikke i git)
 ├── db/
 │   └── schema.sql      # TimescaleDB-skjema (pris, produksjon, flyt, magasin, forbruk)
-├── backend/            # FastAPI: REST-API for spotprisdataene
+├── backend/            # FastAPI: REST-API for spotpris- og produksjonsdata
 │   ├── app/
 │   │   ├── main.py      # App-oppsett, CORS, /health
 │   │   ├── config.py    # Settings (DATABASE_URL m.m.) via pydantic-settings
 │   │   ├── db.py        # psycopg2 connection pool
-│   │   ├── zones.py     # Sone-metadata (kode -> navn)
+│   │   ├── zones.py     # Sone-metadata (kode -> navn) + validate_zone()
 │   │   ├── schemas.py   # Pydantic-responsmodeller
 │   │   └── routers/
-│   │       └── prices.py  # /prices, /prices/latest, /prices/daily-average, /prices/zones
+│   │       ├── prices.py      # /prices, /prices/latest, /prices/daily-average, /prices/zones
+│   │       └── production.py  # /production, /production/latest, /production/mix, /production/types
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/           # (kommer) interaktivt dashboard
@@ -100,9 +103,22 @@ python plot_prices.py
 Åpne `output/prices_chart.html` i en nettleser for å se en interaktiv
 tidsserie-graf med alle sonene siste 7 dager.
 
-### 7. Start backend-API
+### 7. Hent produksjonsmiks
 
-Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5).
+```bash
+python fetch_production.py --days 7
+```
+
+Dette henter faktisk produksjon per produksjonstype (ENTSO-E documentType
+A75, "Actual Generation per Type") for samme sonesett, mapper ENTSO-E sine
+PSR-typekoder (B01, B11, B19, ...) til lesbare typer (`hydro`,
+`wind_onshore`, `solar`, ...), og lagrer i `output/production.csv` og/eller
+`production_per_source`-tabellen. Forbruk/pumping i pumpekraftverk
+(businessType A04) filtreres bort — dette er produksjon, ikke last.
+
+### 8. Start backend-API
+
+Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5 og 7).
 
 ```bash
 cd backend
@@ -128,10 +144,6 @@ Endepunkter:
 | `GET /production?zone=NO1&production_type=hydro&start=...&end=...&limit=...` | Rå produksjonstidsserie (MW), filtrert på sone/type/periode |
 | `GET /production/latest?zone=NO1` | Siste produksjonstall per sone og type |
 | `GET /production/mix?zone=NO1&days=7` | Produksjonsmiks: snitt-MW og prosentandel per type, siste N dager |
-
-Merk: produksjonsendepunktene leser fra `production_per_source`-tabellen,
-som foreløpig ikke fylles av noe ingest-script — det kommer i et senere
-steg (ENTSO-E documentType A75, faktisk produksjon per produksjonstype).
 
 Alternativt, kjør hele stacken (database + backend) med Docker:
 
@@ -170,9 +182,8 @@ automatisk til `db`-tjenesten.
 
 ## Neste steg
 
-- Utvide ingest til produksjonsmiks (ENTSO-E documentType A75) og
-  cross-border flow (documentType A11) — `/production`-endepunktene i
-  backend er klare til å ta imot disse dataene
+- Utvide ingest til cross-border flow (ENTSO-E documentType A11) —
+  `flyt`-tabellen og et fremtidig `/flow`-endepunkt i backend gjenstår
 - Sette opp Statnett-integrasjon for magasinfylling
 - Utvide backend-API-et med flyt og magasinfylling etter hvert som ingest
   dekker disse tabellene

@@ -16,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+from .production_types import CONSUMPTION_BUSINESS_TYPE, PSR_TYPE_TO_PRODUCTION_TYPE
+
 BASE_URL = "https://web-api.tp.entsoe.eu/api"
 
 # ENTSO-E returns XML with a namespace that varies by document type; we strip
@@ -32,6 +34,15 @@ class PricePoint:
     zone: str
     timestamp_utc: datetime
     price_eur_mwh: float
+    resolution_min: int
+
+
+@dataclass
+class ProductionPoint:
+    zone: str
+    timestamp_utc: datetime
+    production_type: str
+    quantity_mw: float
     resolution_min: int
 
 
@@ -105,8 +116,54 @@ class EntsoeClient:
         xml_text = self._get(params)
         return self._parse_price_xml(xml_text, zone)
 
+    def get_actual_generation_per_type(self, zone: str, eic_code: str, period_start: datetime, period_end: datetime) -> list[ProductionPoint]:
+        """
+        Fetch actual generation per production type (document type A75,
+        process type A16 "Realised") for a single bidding zone.
+
+        period_start / period_end must be timezone-aware UTC datetimes.
+        """
+        params = {
+            "documentType": "A75",
+            "processType": "A16",
+            "in_Domain": eic_code,
+            "periodStart": period_start.strftime("%Y%m%d%H%M"),
+            "periodEnd": period_end.strftime("%Y%m%d%H%M"),
+        }
+        xml_text = self._get(params)
+        return self._parse_generation_xml(xml_text, zone)
+
     @staticmethod
-    def _parse_price_xml(xml_text: str, zone: str) -> list[PricePoint]:
+    def _parse_period(period: ET.Element) -> tuple[datetime | None, int, list[tuple[int, float]]]:
+        """Parse a <Period> element into (period_start, resolution_min, [(position, value), ...])."""
+        period_start = None
+        resolution_min = 60
+        for tag, child in _local_iter(period):
+            if tag == "timeInterval":
+                for tag2, ti_child in _local_iter(child):
+                    if tag2 == "start":
+                        period_start = datetime.strptime(ti_child.text, "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc)
+            elif tag == "resolution":
+                resolution_min = _resolution_to_minutes(child.text)
+
+        values: list[tuple[int, float]] = []
+        for tag, point in _local_iter(period):
+            if tag != "Point":
+                continue
+            position = None
+            value = None
+            for tag2, pchild in _local_iter(point):
+                if tag2 == "position":
+                    position = int(pchild.text)
+                elif tag2 in ("price.amount", "quantity"):
+                    value = float(pchild.text)
+            if position is not None and value is not None:
+                values.append((position, value))
+
+        return period_start, resolution_min, values
+
+    @classmethod
+    def _parse_price_xml(cls, xml_text: str, zone: str) -> list[PricePoint]:
         root = ET.fromstring(xml_text)
 
         if _strip_ns(root.tag) == "Acknowledgement_MarketDocument":
@@ -121,35 +178,60 @@ class EntsoeClient:
             for tag2, period in _local_iter(timeseries):
                 if tag2 != "Period":
                     continue
-
-                period_start = None
-                resolution_min = 60
-                for tag3, child in _local_iter(period):
-                    if tag3 == "timeInterval":
-                        for tag4, ti_child in _local_iter(child):
-                            if tag4 == "start":
-                                period_start = datetime.strptime(
-                                    ti_child.text, "%Y-%m-%dT%H:%MZ"
-                                ).replace(tzinfo=timezone.utc)
-                    elif tag3 == "resolution":
-                        resolution_min = _resolution_to_minutes(child.text)
-
+                period_start, resolution_min, values = cls._parse_period(period)
                 if period_start is None:
                     continue
-
-                for tag3, point in _local_iter(period):
-                    if tag3 != "Point":
-                        continue
-                    position = None
-                    price = None
-                    for tag4, pchild in _local_iter(point):
-                        if tag4 == "position":
-                            position = int(pchild.text)
-                        elif tag4 == "price.amount":
-                            price = float(pchild.text)
-                    if position is None or price is None:
-                        continue
+                for position, price in values:
                     ts = period_start + timedelta(minutes=resolution_min * (position - 1))
                     points.append(PricePoint(zone=zone, timestamp_utc=ts, price_eur_mwh=price, resolution_min=resolution_min))
+
+        return points
+
+    @classmethod
+    def _parse_generation_xml(cls, xml_text: str, zone: str) -> list[ProductionPoint]:
+        root = ET.fromstring(xml_text)
+
+        if _strip_ns(root.tag) == "Acknowledgement_MarketDocument":
+            return []
+
+        points: list[ProductionPoint] = []
+        for tag, timeseries in _local_iter(root):
+            if tag != "TimeSeries":
+                continue
+
+            psr_type = None
+            business_type = None
+            period_elems = []
+            for tag2, child in _local_iter(timeseries):
+                if tag2 == "MktPSRType":
+                    for tag3, psr_child in _local_iter(child):
+                        if tag3 == "psrType":
+                            psr_type = psr_child.text
+                elif tag2 == "businessType":
+                    business_type = child.text
+                elif tag2 == "Period":
+                    period_elems.append(child)
+
+            if business_type == CONSUMPTION_BUSINESS_TYPE:
+                # Pumped-storage pumping etc. — not generation, skip.
+                continue
+
+            production_type = PSR_TYPE_TO_PRODUCTION_TYPE.get(psr_type, psr_type or "unknown")
+
+            for period in period_elems:
+                period_start, resolution_min, values = cls._parse_period(period)
+                if period_start is None:
+                    continue
+                for position, quantity in values:
+                    ts = period_start + timedelta(minutes=resolution_min * (position - 1))
+                    points.append(
+                        ProductionPoint(
+                            zone=zone,
+                            timestamp_utc=ts,
+                            production_type=production_type,
+                            quantity_mw=quantity,
+                            resolution_min=resolution_min,
+                        )
+                    )
 
         return points
