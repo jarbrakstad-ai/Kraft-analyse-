@@ -1,0 +1,17 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: kraft_analyse_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kraft
+      POSTGRES_PASSWORD: kraft
+      POSTGRES_DB: kraft_analyse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+
+volumes:
+  pgdata:
