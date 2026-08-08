@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { ALL_TRACKED_ZONES, DEFICIT_ZONE_OPTIONS } from "../constants";
 import { formatNumber } from "../format";
 import { useApiData } from "../useApiData";
+import type { ScenarioForecast } from "../types";
 import { Card } from "./Card";
 import { StatusBox } from "./StatusBox";
 import { ZoneMap } from "./ZoneMap";
@@ -12,6 +13,13 @@ const YEARS = 5;
 const GROWTH_MIN = -5;
 const GROWTH_MAX = 10;
 const GROWTH_STEP = 0.5;
+
+/** First year (1..YEARS) where the scenario tips into deficit, or null if it never does within the window. */
+function crossoverYear(forecast: ScenarioForecast | null | undefined): number | null {
+  if (!forecast) return null;
+  const hit = forecast.years.find((y) => y.year > 0 && y.balance_mw < 0);
+  return hit ? hit.year : null;
+}
 
 function GrowthSlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
@@ -63,6 +71,33 @@ export function ScenarioSection() {
       balance_mw: forecast.years[year]?.balance_mw ?? forecast.years[forecast.years.length - 1].balance_mw,
     }));
   }, [allZones.data, year]);
+
+  // "Med vs. uten utbygging": samme forbruksvekst, men produksjonen enten fortsetter å vokse
+  // eller flater helt ut (0 %) — status quo, altså ingen ny kraftproduksjon bygges.
+  const [compareZone, setCompareZone] = useState("NO");
+  const [compareConsumptionGrowth, setCompareConsumptionGrowth] = useState(2);
+  const [expansionGrowth, setExpansionGrowth] = useState(3);
+
+  const withExpansion = useApiData(
+    () => api.deficitScenario(compareZone, compareConsumptionGrowth, expansionGrowth, YEARS),
+    [compareZone, compareConsumptionGrowth, expansionGrowth],
+  );
+  const withoutExpansion = useApiData(
+    () => api.deficitScenario(compareZone, compareConsumptionGrowth, 0, YEARS),
+    [compareZone, compareConsumptionGrowth],
+  );
+
+  const compareChartData = useMemo(() => {
+    if (!withExpansion.data || !withoutExpansion.data) return [];
+    return withExpansion.data.years.map((y, i) => ({
+      year: y.year,
+      med_utbygging: y.balance_mw,
+      uten_utbygging: withoutExpansion.data!.years[i]?.balance_mw ?? null,
+    }));
+  }, [withExpansion.data, withoutExpansion.data]);
+
+  const withExpansionCrossover = crossoverYear(withExpansion.data);
+  const withoutExpansionCrossover = crossoverYear(withoutExpansion.data);
 
   return (
     <>
@@ -118,6 +153,69 @@ export function ScenarioSection() {
                 <Tooltip labelFormatter={(y) => (y === 0 ? "I dag" : `Om ${y} år`)} formatter={(v) => `${formatNumber(v, 0)} MW`} />
                 <ReferenceLine y={0} stroke="var(--text-muted)" strokeDasharray="4 4" />
                 <Line type="monotone" dataKey="balance_mw" stroke="#2563eb" strokeWidth={2} name="Balanse" dot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </>
+        )}
+      </Card>
+
+      <Card
+        title="Konsekvens av å ikke bygge ut i tide"
+        controls={
+          <select value={compareZone} onChange={(e) => setCompareZone(e.target.value)}>
+            {DEFICIT_ZONE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        }
+      >
+        <p className="hint">
+          Samme forbruksvekst i begge scenarioer. "Med utbygging" lar produksjonen vokse med raten under. "Uten
+          utbygging" holder produksjonen flat på dagens nivå — status quo, ingen ny kraft bygges ut.
+        </p>
+
+        <div className="growth-sliders">
+          <GrowthSlider label="Forbruksvekst" value={compareConsumptionGrowth} onChange={setCompareConsumptionGrowth} />
+          <GrowthSlider label="Produksjonsvekst med utbygging" value={expansionGrowth} onChange={setExpansionGrowth} />
+        </div>
+
+        <StatusBox
+          loading={withExpansion.loading || withoutExpansion.loading}
+          error={withExpansion.error || withoutExpansion.error}
+          empty={!withExpansion.loading && compareChartData.length === 0}
+        />
+
+        {compareChartData.length > 0 && (
+          <>
+            <div className="crossover-callouts">
+              <div className="crossover-callout crossover-good">
+                <div className="crossover-callout-label">Med utbygging</div>
+                <div className="crossover-callout-value">
+                  {withExpansionCrossover ? `Underskudd fra år +${withExpansionCrossover}` : `Ingen underskudd innen ${YEARS} år`}
+                </div>
+              </div>
+              <div className="crossover-callout crossover-bad">
+                <div className="crossover-callout-label">Uten utbygging</div>
+                <div className="crossover-callout-value">
+                  {withoutExpansionCrossover
+                    ? `Underskudd fra år +${withoutExpansionCrossover}`
+                    : `Ingen underskudd innen ${YEARS} år`}
+                </div>
+              </div>
+            </div>
+
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={compareChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="year" tickFormatter={(y) => (y === 0 ? "I dag" : `+${y} år`)} stroke="var(--text-muted)" />
+                <YAxis unit=" MW" width={90} stroke="var(--text-muted)" />
+                <Tooltip labelFormatter={(y) => (y === 0 ? "I dag" : `Om ${y} år`)} formatter={(v) => `${formatNumber(v as number, 0)} MW`} />
+                <Legend />
+                <ReferenceLine y={0} stroke="var(--text-muted)" strokeDasharray="4 4" />
+                <Line type="monotone" dataKey="med_utbygging" stroke="#16a34a" strokeWidth={2} name="Med utbygging" dot={{ r: 4 }} />
+                <Line type="monotone" dataKey="uten_utbygging" stroke="#dc2626" strokeWidth={2} name="Uten utbygging" dot={{ r: 4 }} />
               </LineChart>
             </ResponsiveContainer>
           </>

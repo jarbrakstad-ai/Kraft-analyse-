@@ -423,6 +423,47 @@ code {
   accent-color: var(--accent);
 }
 
+.crossover-callouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.crossover-callout {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.crossover-callout-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.crossover-callout-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.crossover-good {
+  background: rgba(22, 163, 74, 0.08);
+}
+
+.crossover-good .crossover-callout-value {
+  color: #16a34a;
+}
+
+.crossover-bad {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.crossover-bad .crossover-callout-value {
+  color: #dc2626;
+}
+
 @media (max-width: 640px) {
   .app-header {
     flex-direction: column;

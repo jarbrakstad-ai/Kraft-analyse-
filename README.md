@@ -345,6 +345,15 @@ forbruksvekst og produksjonsvekst), med samme skjematiske kart (nå med en
 årsvelger) og en linjegraf over balanseutviklingen. Gjenbruker
 `ZoneMap.tsx` og `mapColors.ts` fra Kraftbalanse-fanen.
 
+Scenario-fanen har også en sammenligningsseksjon, "Konsekvens av å ikke
+bygge ut i tide", ment som et konkret faktagrunnlag for
+utbyggingsdiskusjoner: to `/deficit/scenario`-kall med samme forbruksvekst
+men ulik produksjonsvekst (brukerstyrt "med utbygging"-rate vs. fast 0 %
+"uten utbygging") plottes sammen i én graf, med en utregnet "underskudd fra
+år X"-callout per scenario (første år balansen blir negativ, eller "ingen
+underskudd innen 5 år"). Ingen nye backend-endepunkter — `/deficit/scenario`
+tok allerede vekstrater som parametre.
+
 Uten data i databasen vises "Ingen data" i hver seksjon i stedet for en
 graf; det er ikke en feil.
 
