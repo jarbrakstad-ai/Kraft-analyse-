@@ -93,3 +93,28 @@ CREATE TABLE IF NOT EXISTS weather_observation (
 
 SELECT create_hypertable('weather_observation', 'timestamp_utc', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_weather_zone_time ON weather_observation (zone, timestamp_utc DESC);
+
+-- Power plant capacity pipeline from NVE's hydro/wind power plant databases:
+-- projects under construction or with a granted concession, not yet in
+-- operation. Answers "how much expected effect increase is actually in the
+-- pipeline per price area" for the kraftutbygging discussion — a plain fact
+-- feed, not a forecast. `zone` is a best-effort mapping from the county NVE
+-- reports (see ingest/nve/zones.py) and can be NULL when the county is
+-- unknown or straddles a zone border; `county`/`municipality` are kept
+-- as-is from NVE so nothing is lost if the zone mapping is wrong or missing.
+CREATE TABLE IF NOT EXISTS capacity_pipeline (
+    source_type             TEXT        NOT NULL,  -- 'hydro' | 'wind'
+    plant_id                TEXT        NOT NULL,   -- NVE's own ID for the plant/project
+    name                    TEXT        NOT NULL,
+    status                  TEXT        NOT NULL,   -- raw NVE status string, e.g. 'Under bygging', 'Gitt konsesjon'
+    municipality             TEXT,
+    county                  TEXT,
+    zone                    TEXT,                   -- best-effort NO1-NO5 mapping from county, may be NULL
+    installed_effect_mw     DOUBLE PRECISION,
+    expected_commissioning  DATE,
+    source                  TEXT        NOT NULL DEFAULT 'nve',
+    inserted_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (source_type, plant_id, source)
+);
+
+CREATE INDEX IF NOT EXISTS idx_capacity_pipeline_zone ON capacity_pipeline (zone);

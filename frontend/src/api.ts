@@ -1,4 +1,5 @@
 import type {
+  CapacityPipeline,
   ConsumptionPoint,
   DeficitForecast,
   DeficitSummary,
@@ -86,6 +87,8 @@ export const api = {
       production_growth_pct: productionGrowthPct,
       years,
     }),
+
+  capacityPipeline: (zone?: string) => get<CapacityPipeline>("/capacity/pipeline", { zone }),
 };
 
 function sinceDays(days: number): string {

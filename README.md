@@ -23,6 +23,7 @@ Første leveranse (steg 1 av flere):
 - [x] Kraftbalanse (produksjon − forbruk): historisk + neste dags prediksjon for Norge og sporede europeiske soner
 - [x] Scenario-fane: fremskrivning 1-5 år frem med brukerstyrte vekstrater, inkl. "med vs. uten utbygging"-sammenligning
 - [x] Automatisert ingest + periodisk re-trening via cron (`ops/scheduler/`)
+- [x] Kraft-i-rørledningen: vann-/vindkraftverk under bygging/med konsesjon per prisområde (NVE, uverifisert skjema)
 
 ## Repo-struktur
 
@@ -35,7 +36,8 @@ Kraft-analyse-/
 │   │   ├── production_types.py  # PSR-typekode -> lesbar produksjonstype
 │   │   └── interconnectors.py   # Utenlandskabel -> sonepar (+ GB EIC for North Sea Link)
 │   ├── nve/
-│   │   └── client.py             # NVE Magasinstatistikk API-klient (ingen nøkkel nødvendig)
+│   │   ├── client.py             # NVE Magasinstatistikk + kraftverksdatabase-klienter (ingen nøkkel nødvendig)
+│   │   └── zones.py              # Grov fylke -> elspot-sone-tilnærming
 │   ├── met/
 │   │   ├── client.py             # MET Norway Frost API-klient (værobservasjoner)
 │   │   └── stations.py           # Sone -> værstasjon-ID
@@ -45,6 +47,7 @@ Kraft-analyse-/
 │   ├── fetch_flow.py       # Henter grenseflyt på utenlandskabler og lagrer i DB + CSV
 │   ├── fetch_reservoir.py  # Henter magasinfylling fra NVE og lagrer i DB + CSV
 │   ├── fetch_weather.py    # Henter værobservasjoner og lagrer i DB + CSV
+│   ├── fetch_capacity_pipeline.py # Henter vann-/vindkraftverk under bygging/med konsesjon fra NVE
 │   ├── plot_prices.py      # Genererer interaktiv graf over siste N dager
 │   ├── run_all.py          # Kjører alle fetch_*.py-scriptene samlet (brukes av cron-jobben)
 │   └── output/              # Genererte CSV/HTML (ikke i git)
@@ -72,7 +75,8 @@ Kraft-analyse-/
 │   │       ├── weather.py     # /weather, /weather/latest
 │   │       ├── analysis.py    # /analysis/price-vs-production, /price-vs-reservoir, /price-spread-vs-flow, /price-vs-weather, /production-vs-weather
 │   │       ├── predict.py     # /predict/price, /predict/model-info
-│   │       └── deficit.py     # /deficit, /deficit/forecast, /deficit/scenario, /deficit/model-info
+│   │       ├── deficit.py     # /deficit, /deficit/forecast, /deficit/scenario, /deficit/model-info
+│   │       └── capacity.py    # /capacity/pipeline — kraftverk under bygging/med konsesjon fra NVE, per sone
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/            # React + TypeScript + Vite: interaktivt dashboard
@@ -381,11 +385,13 @@ servert via nginx), backend på http://localhost:8000, begge koblet mot
 (`ops/scheduler/`) — et lite Docker-image med `cron` som kjører uten at
 noen trenger å logge inn og kjøre scriptene manuelt:
 
-- **Daglig kl. 03:00 UTC**: `ingest/run_all.py --days 2` — kjører alle seks
-  `fetch_*.py`-scriptene på rad. `--days 2` overlapper forrige kjøring med
-  vilje (alle databaseskriv er upserts på `(zone, timestamp, source)`,
-  så det er trygt å hente samme time to ganger — en forsinket/glemt time
-  reparerer seg selv neste natt).
+- **Daglig kl. 03:00 UTC**: `ingest/run_all.py --days 2` — kjører alle
+  `fetch_*.py`-scriptene på rad (pris, produksjon, flyt, forbruk, vær,
+  magasin, og utbyggingspipeline, se steg 16). `--days 2` overlapper forrige
+  kjøring med vilje (alle databaseskriv er upserts på
+  `(zone, timestamp, source)` eller tilsvarende, så det er trygt å hente
+  samme periode to ganger — en forsinket/glemt time reparerer seg selv
+  neste natt).
 - **Ukentlig, søndag kl. 04:00 UTC**: `python -m app.ml.train` — trener
   begge modellene på nytt på den ferskeste dataen. Modellfilene
   (`backend/app/ml/*.joblib`) deles mellom `scheduler`- og
@@ -423,6 +429,40 @@ konstant) — viktig for at en automatisk, ubevoktet ukentlig re-trening
 faktisk er pålitelig fra dag én, før alle datakilder har rukket å fylles
 opp for alle soner.
 
+### 16. Kraft i rørledningen — utbyggingspipeline fra NVE
+
+Scenario-fanen viser nå også "Kraft i rørledningen (NVE)": vann- og
+vindkraftverk som er **under bygging** eller har **fått konsesjon** (ikke i
+drift ennå), summert per prisområde. Dette er et faktafeed for
+kraftutbyggingsdiskusjonen — hva er faktisk vedtatt/i gang, ikke et
+behovs- eller prognosetall som scenario-verktøyet.
+
+Hentes av `fetch_capacity_pipeline.py` fra to NVE-endepunkter
+(`ingest/nve/client.py`):
+
+- `GetHydroPowerPlants` — bekreftet (via NVEs eget eksempelscript på
+  GitHub) å inkludere anlegg under bygging, ikke bare de som er i drift.
+- `GetWindPowerPlantsInOperation` — det eneste vindkraft-endepunktet som
+  ble bekreftet herfra; navnet antyder at det **kun** dekker anlegg
+  allerede i drift, så vinddelen av pipelinen kan være ufullstendig inntil
+  et bredere endepunkt er bekreftet med reell nettverkstilgang.
+
+Sone settes med en grov fylke->sone-tilnærming
+(`ingest/nve/zones.py`, `FYLKE_TO_ZONE`) — bidding zones følger ikke
+fylkesgrenser nøyaktig (Innlandet er det største kjente tilfellet), så
+`zone` kan være feil for anlegg nær en sonegrense. Anlegg med ukjent/
+ukartlagt fylke beholdes med `zone = NULL` og telles i
+`unmapped_effect_mw` i stedet for å forsvinne stille.
+
+**Viktig**: feltnavnene i NVEs JSON-respons (status, effekt, fylke, osv.)
+er **ikke verifisert mot en reell kjøring** — api.nve.no var blokkert av
+nettverksproxyen i miljøet dette ble bygget i. `_parse_plant_rows` i
+`nve/client.py` feiler høylytt med en liste over faktiske nøkler i
+responsen hvis ingen av kandidatnavnene treffer, i stedet for å stille
+mappe feil data — samme mønster som `fetch_reservoir.py` allerede brukte.
+Kjør `python fetch_capacity_pipeline.py --no-db` med ekte nettverkstilgang
+og sjekk output/eventuell feilmelding før dette brukes til noe viktig.
+
 ## Datakilder
 
 | Kilde | Bruk | Krever nøkkel? |
@@ -430,7 +470,10 @@ opp for alle soner.
 | [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) | Hovedkilde: pris, produksjon, flyt for Norge og Europa | Ja (gratis registrering) |
 | [MET Norway Frost API](https://frost.met.no/) | Værobservasjoner (temperatur, vind, nedbør) per sone (brukt av `fetch_weather.py`) | Ja (gratis, umiddelbar) |
 | [NVE Magasinstatistikk](https://www.nve.no/energi/analyser-og-statistikk/magasinstatistikk/) | Ukentlig magasinfylling per elspot-sone (brukt av `fetch_reservoir.py`) | Nei |
+| [NVE Vannkraftdatabase](https://api.nve.no/doc/vannkraftdatabase/) (`GetHydroPowerPlants`) | Vannkraftverk under bygging/med konsesjon — kraft-i-rørledningen (brukt av `fetch_capacity_pipeline.py`) | Nei |
+| [NVE Vindkraftdatabase](https://api.nve.no/doc/vindkraftdatabase/) (`GetWindPowerPlantsInOperation`) | Samme for vindkraft — **kun bekreftet for anlegg i drift**, se advarsel i steg 16 | Nei |
 | [Statnett "Tall og data"](https://www.statnett.no/for-aktorer-i-kraftsystemet/tall-og-data-fra-kraftsystemet/) | Alternativ kilde for sanntid/historikk på flyt og fyllingsgrad | Nei |
+| [Statnett tilknytningsdatabase](https://www.statnett.no/for-aktorer-i-kraftbransjen/nettkapasitet-til-produksjon-og-forbruk/foresporsler-og-reservasjon-i-nettet/) | Nettilknytningskø — hvem har reservert kapasitet, hvor mye, hvor. Ikke integrert ennå (ikke et rent API, kun Excel-eksport fra nettsiden) | Nei |
 | [Hva koster strømmen](https://www.hvakosterstrommen.no/strompriser-api) | Backup/supplement for norske spotpriser | Nei |
 | [Elhub](https://elhub.no/data/) | Forbruk og produksjon i Norge (CSV/XLSX) | Nei |
 | [NVE dataplattform](https://www.nve.no/energi/energisystem/kraftproduksjon/) | Nettleie/produksjonsdata | Nei (delvis) |

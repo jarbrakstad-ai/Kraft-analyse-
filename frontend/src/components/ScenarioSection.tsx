@@ -99,8 +99,86 @@ export function ScenarioSection() {
   const withExpansionCrossover = crossoverYear(withExpansion.data);
   const withoutExpansionCrossover = crossoverYear(withoutExpansion.data);
 
+  const pipeline = useApiData(() => api.capacityPipeline(), []);
+  const maxZoneEffect = useMemo(
+    () => Math.max(1, ...(pipeline.data?.zones.map((z) => z.total_effect_mw) ?? [0])),
+    [pipeline.data],
+  );
+
   return (
     <>
+      <Card title="Kraft i rørledningen (NVE)">
+        <p className="hint">
+          Vann- og vindkraftverk som er <strong>under bygging</strong> eller har{" "}
+          <strong>fått konsesjon</strong> (ikke satt i drift ennå), hentet fra NVEs kraftverksdatabaser. Dette er en
+          faktasjekk på hva som faktisk er i gang — ikke et behov- eller prognosetall.
+        </p>
+
+        <StatusBox loading={pipeline.loading} error={pipeline.error} empty={!pipeline.loading && (pipeline.data?.plants.length ?? 0) === 0} />
+
+        {pipeline.data && pipeline.data.plants.length > 0 && (
+          <>
+            <div className="feature-bars" style={{ marginBottom: 20 }}>
+              {pipeline.data.zones.map((z) => (
+                <div key={z.zone} className="feature-bar-row pipeline-bar-row">
+                  <span className="feature-bar-label">
+                    {z.zone} ({z.n_plants})
+                  </span>
+                  <div className="feature-bar-track">
+                    <div
+                      className="feature-bar-fill"
+                      style={{ width: `${(z.total_effect_mw / maxZoneEffect) * 100}%` }}
+                    />
+                  </div>
+                  <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 13, color: "var(--text-muted)" }}>
+                    {formatNumber(z.total_effect_mw, 0)} MW
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <table className="pipeline-table">
+              <thead>
+                <tr>
+                  <th>Anlegg</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Sone</th>
+                  <th>Effekt (MW)</th>
+                  <th>Forventet idriftsettelse</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pipeline.data.plants.map((p) => (
+                  <tr key={`${p.source_type}-${p.plant_id}`}>
+                    <td>{p.name}</td>
+                    <td>{p.source_type === "hydro" ? "Vann" : "Vind"}</td>
+                    <td>{p.status}</td>
+                    <td>{p.zone ?? p.county ?? "Ukjent"}</td>
+                    <td style={{ textAlign: "right" }}>{p.installed_effect_mw != null ? formatNumber(p.installed_effect_mw, 1) : "—"}</td>
+                    <td>{p.expected_commissioning ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {pipeline.data.unmapped_effect_mw > 0 && (
+              <p className="hint" style={{ marginTop: 12 }}>
+                {formatNumber(pipeline.data.unmapped_effect_mw, 0)} MW kunne ikke knyttes til et prisområde (ukjent
+                eller ukartlagt fylke) og mangler i søylene over.
+              </p>
+            )}
+
+            <div className="prediction-warning" style={{ marginTop: 16 }}>
+              NVE-integrasjonen er bygget defensivt, men feltnavnene i API-responsen er ikke verifisert mot en reell
+              kjøring i dette miljøet (nettverkstilgang til nve.no var blokkert under utvikling) — se
+              ingest/nve/client.py. Vinddekningen kan også være ufullstendig: kun ett bekreftet API-endepunkt for
+              vindkraft ble funnet, og det dekker mulig bare kraftverk allerede i drift.
+            </div>
+          </>
+        )}
+      </Card>
+
       <Card title="Scenario: kraftbalanse 1-5 år frem">
         <p className="hint">
           Dette er <strong>ikke</strong> en trent prediksjon — den daglige ML-modellen har ingen mening så langt frem.

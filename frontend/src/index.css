@@ -464,6 +464,29 @@ code {
   color: #dc2626;
 }
 
+.pipeline-bar-row {
+  grid-template-columns: 60px 1fr 70px !important;
+}
+
+.pipeline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pipeline-table th,
+.pipeline-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.pipeline-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+
 @media (max-width: 640px) {
   .app-header {
     flex-direction: column;

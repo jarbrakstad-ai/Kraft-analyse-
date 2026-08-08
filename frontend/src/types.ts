@@ -189,3 +189,30 @@ export interface ScenarioForecast {
   production_growth_pct_per_year: number;
   years: ScenarioYear[];
 }
+
+export interface PipelinePlant {
+  source_type: string;
+  plant_id: string;
+  name: string;
+  status: string;
+  municipality: string | null;
+  county: string | null;
+  zone: string | null;
+  installed_effect_mw: number | null;
+  expected_commissioning: string | null;
+}
+
+export interface PipelineZoneSummary {
+  zone: string;
+  total_effect_mw: number;
+  under_construction_mw: number;
+  concession_granted_mw: number;
+  n_plants: number;
+}
+
+export interface CapacityPipeline {
+  zones: PipelineZoneSummary[];
+  unmapped_effect_mw: number;
+  plants: PipelinePlant[];
+  last_updated: string | null;
+}

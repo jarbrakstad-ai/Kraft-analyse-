@@ -1,17 +1,36 @@
 """
-NVE Magasinstatistikk API client — Norway's official weekly reservoir fill
-level data. Public API, no key required.
+NVE API clients:
+  - Magasinstatistikk: Norway's official weekly reservoir fill level data.
+  - Vannkraft-/vindkraftdatabase: hydro and wind power plant registries,
+    used here to find projects under construction or with a granted
+    concession (not yet in operation) — the actual capacity pipeline per
+    price area, for the "consequence of not building out in time"
+    discussion.
 
-Endpoint: https://biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOffentligData
-Docs / background: https://www.nve.no/energi/analyser-og-statistikk/magasinstatistikk/
+All three are public APIs, no key required.
 
-IMPORTANT: this integration has NOT been verified against a live response —
-outbound network access to nve.no was blocked in the environment this was
-built in. Field names below are based on NVE's documented schema, but if
-the API has changed, `_parse_rows` will raise a clear NveApiError showing
-the actual keys it found rather than silently mis-mapping data. Run
-`python fetch_reservoir.py --days 14` and check the error message (if any)
-before relying on this in production.
+Endpoints:
+  - https://biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOffentligData
+  - https://api.nve.no/web/Powerplant/GetHydroPowerPlants (confirmed via
+    NVE's own example script: includes plants under construction and
+    decommissioned, not just operational ones)
+  - https://api.nve.no/web/WindPowerplant/GetWindPowerPlantsInOperation
+    (confirmed the same way, but — as the name says — only operational
+    plants; NVE's wind power database docs describe also covering
+    concession cases "under processing", but no endpoint for that was
+    found/confirmed from this environment, since api.nve.no was blocked by
+    the network here. Wind pipeline coverage is therefore incomplete until
+    that's checked with live access.)
+
+IMPORTANT: NONE of this has been verified against a live response —
+outbound network access to nve.no/api.nve.no was blocked in the
+environment this was built in. Field names below are best-effort guesses
+based on NVE's typical naming conventions, not a confirmed schema. Every
+parser here tries a short list of plausible field-name candidates per
+value and raises a clear NveApiError showing the actual keys it found if
+none match, rather than silently mis-mapping data. Run the relevant
+fetch_*.py script and check for that error (and fill in the *_CANDIDATES
+lists below from the real response) before relying on this in production.
 """
 
 from __future__ import annotations
@@ -23,6 +42,8 @@ from datetime import date, datetime, timezone
 import requests
 
 BASE_URL = "https://biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOffentligData"
+HYDRO_PLANTS_URL = "https://api.nve.no/web/Powerplant/GetHydroPowerPlants"
+WIND_PLANTS_URL = "https://api.nve.no/web/WindPowerplant/GetWindPowerPlantsInOperation"
 
 # NVE's documented field names as of the last time this schema was checked
 # against public references. omrType "EL" = elspot bidding zone (paired
@@ -47,9 +68,89 @@ class ReservoirPoint:
     capacity_gwh: float | None
 
 
+@dataclass
+class PlantPipelineEntry:
+    plant_id: str
+    name: str
+    status: str
+    municipality: str | None
+    county: str | None
+    installed_effect_mw: float | None
+    expected_commissioning: date | None
+
+
 def _iso_week_monday_utc(year: int, week: int) -> datetime:
     d = date.fromisocalendar(year, week, 1)  # ISO weekday 1 = Monday
     return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+
+
+def _parse_loose_date(value) -> date | None:
+    """Handles the commissioning field being a full date string, an ISO datetime, or just a year (int/str)."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return date(int(value), 1, 1)
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit() and len(text) == 4:
+        return date(int(text), 1, 1)
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(text[: len(fmt) + 2], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+# Candidate JSON key names per value, tried in order, for the hydro/wind
+# plant endpoints — see the module docstring for why these are guesses
+# rather than a confirmed schema. Norwegian and English variants included
+# since NVE's APIs mix both conventions across different endpoints.
+PLANT_ID_CANDIDATES = ["VannkraftverkNr", "VindkraftverkNr", "AnleggNr", "Nr", "Id", "ID"]
+PLANT_NAME_CANDIDATES = ["Navn", "Name", "VerkNavn", "AnleggNavn"]
+PLANT_STATUS_CANDIDATES = ["Status", "StatusVerk", "Konsesjonsstatus", "AnleggsStatus"]
+PLANT_MUNICIPALITY_CANDIDATES = ["Kommune", "KommuneNavn", "Municipality"]
+PLANT_COUNTY_CANDIDATES = ["Fylke", "FylkeNavn", "County"]
+PLANT_EFFECT_MW_CANDIDATES = [
+    "PaInstallertEffekt_MW",
+    "InstallertEffekt_MW",
+    "MaksYtelse",
+    "SystemMaksYtelse",
+    "Effekt_MW",
+    "EffektMW",
+    "InstalledCapacityMW",
+]
+PLANT_COMMISSIONING_CANDIDATES = [
+    "ForventetIdriftsettelse",
+    "PlanlagtIdriftsettelse",
+    "IdriftAar",
+    "IdriftsattAar",
+    "ExpectedCommissioning",
+]
+
+# Status values that mean "not yet operational, but committed" — matched by
+# case-insensitive substring, not exact string, so small wording variations
+# in the real API don't silently fall through as "unmatched".
+PIPELINE_STATUS_SUBSTRINGS = ["bygging", "konsesjon"]
+# ...but never count a project already in the "avslått" (rejected) bucket,
+# even if its status string also happens to contain "konsesjon" somewhere
+# (e.g. "konsesjon avslått").
+REJECTED_STATUS_SUBSTRINGS = ["avslå", "avslag", "trukket", "henlagt"]
+
+
+def _first_present(row: dict, candidates: list[str]):
+    for key in candidates:
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+    return None
+
+
+def _is_pipeline_status(status: str) -> bool:
+    s = status.lower()
+    if any(bad in s for bad in REJECTED_STATUS_SUBSTRINGS):
+        return False
+    return any(good in s for good in PIPELINE_STATUS_SUBSTRINGS)
 
 
 class NveClient:
@@ -57,11 +158,11 @@ class NveClient:
         self.session = session or requests.Session()
         self.max_retries = max_retries
 
-    def _get(self) -> list[dict]:
+    def _get(self, url: str = BASE_URL) -> list[dict]:
         last_exc: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
-                resp = self.session.get(BASE_URL, timeout=60)
+                resp = self.session.get(url, timeout=60)
             except requests.RequestException as exc:
                 last_exc = exc
                 time.sleep(2 * attempt)
@@ -87,6 +188,72 @@ class NveClient:
         """
         rows = self._get()
         return self._parse_rows(rows)
+
+    def get_hydro_capacity_pipeline(self) -> list[PlantPipelineEntry]:
+        """
+        Hydro power plants under construction or with a granted concession
+        (not yet in operation), from NVE's hydro power plant database.
+        """
+        rows = self._get(HYDRO_PLANTS_URL)
+        return self._parse_plant_rows(rows)
+
+    def get_wind_capacity_pipeline(self) -> list[PlantPipelineEntry]:
+        """
+        Wind power plants under construction or with a granted concession.
+
+        NOTE: hits GetWindPowerPlantsInOperation, the only wind endpoint
+        confirmed from this environment (see module docstring) — it may
+        only return operational plants, in which case this will come back
+        empty (every row filtered out by _is_pipeline_status) rather than
+        wrong. If NVE has a broader wind endpoint, swap WIND_PLANTS_URL
+        for it once confirmed.
+        """
+        rows = self._get(WIND_PLANTS_URL)
+        return self._parse_plant_rows(rows)
+
+    @classmethod
+    def _parse_plant_rows(cls, rows: list[dict]) -> list[PlantPipelineEntry]:
+        if not rows:
+            return []
+
+        first = rows[0]
+        if _first_present(first, PLANT_STATUS_CANDIDATES) is None:
+            raise NveApiError(
+                f"NVE plant response schema doesn't match expected fields — no status field found "
+                f"among candidates {PLANT_STATUS_CANDIDATES}. Actual keys in first row: {sorted(first.keys())}. "
+                f"Update the PLANT_*_CANDIDATES lists in nve/client.py to match."
+            )
+
+        entries: list[PlantPipelineEntry] = []
+        for row in rows:
+            status = _first_present(row, PLANT_STATUS_CANDIDATES)
+            if status is None or not _is_pipeline_status(str(status)):
+                continue
+
+            plant_id = _first_present(row, PLANT_ID_CANDIDATES)
+            name = _first_present(row, PLANT_NAME_CANDIDATES)
+            if plant_id is None or name is None:
+                raise NveApiError(
+                    f"NVE plant row has a pipeline status ('{status}') but is missing an id/name field. "
+                    f"Row keys: {sorted(row.keys())}"
+                )
+
+            effect_raw = _first_present(row, PLANT_EFFECT_MW_CANDIDATES)
+            commissioning_raw = _first_present(row, PLANT_COMMISSIONING_CANDIDATES)
+
+            entries.append(
+                PlantPipelineEntry(
+                    plant_id=str(plant_id),
+                    name=str(name),
+                    status=str(status),
+                    municipality=_first_present(row, PLANT_MUNICIPALITY_CANDIDATES),
+                    county=_first_present(row, PLANT_COUNTY_CANDIDATES),
+                    installed_effect_mw=float(effect_raw) if effect_raw is not None else None,
+                    expected_commissioning=_parse_loose_date(commissioning_raw),
+                )
+            )
+
+        return entries
 
     @staticmethod
     def _zone_from_row(row: dict) -> str:

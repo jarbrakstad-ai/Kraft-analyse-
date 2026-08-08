@@ -15,6 +15,7 @@ import sys
 import traceback
 from datetime import datetime, timezone
 
+import fetch_capacity_pipeline
 import fetch_consumption
 import fetch_flow
 import fetch_prices
@@ -30,6 +31,7 @@ JOBS = [
     ("forbruk", fetch_consumption, []),
     ("vaer", fetch_weather, []),
     ("magasin", fetch_reservoir, ["--days", "365"]),  # weekly series, keep full history
+    ("utbyggingspipeline", fetch_capacity_pipeline, ["--sources", "hydro", "wind"]),  # changes slowly, no --days
 ]
 
 

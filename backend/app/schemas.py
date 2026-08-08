@@ -283,3 +283,38 @@ class ScenarioForecast(BaseModel):
     production_growth_pct_per_year: float
     years: list[ScenarioYear]
 
+
+class PipelinePlant(BaseModel):
+    source_type: str  # 'hydro' | 'wind'
+    plant_id: str
+    name: str
+    status: str
+    municipality: str | None
+    county: str | None
+    zone: str | None
+    installed_effect_mw: float | None
+    expected_commissioning: date | None
+
+
+class PipelineZoneSummary(BaseModel):
+    """
+    Total effect (MW) under construction or with a granted concession in a
+    zone, from NVE's power plant registries — a fact feed, not a forecast.
+    See /capacity/pipeline/model-info-equivalent caveats in the docs: the
+    NVE field mapping is unverified against a live response, and wind
+    coverage may be incomplete (see ingest/nve/client.py).
+    """
+
+    zone: str
+    total_effect_mw: float
+    under_construction_mw: float
+    concession_granted_mw: float
+    n_plants: int
+
+
+class CapacityPipeline(BaseModel):
+    zones: list[PipelineZoneSummary]
+    unmapped_effect_mw: float  # sum for plants whose county couldn't be mapped to a zone
+    plants: list[PipelinePlant]
+    last_updated: datetime | None
+
