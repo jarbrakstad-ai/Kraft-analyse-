@@ -13,8 +13,8 @@ Første leveranse (steg 1 av flere):
 - [x] Enkel graf over prisene siste 7 dager
 - [x] FastAPI-backend for spotprisdataene
 - [x] Ingest + backend for produksjonsmiks per sone
+- [x] Ingest + backend for import/eksport-flyt på utenlandskabler
 - [ ] Magasinfylling
-- [ ] Import/eksport-flyt på utenlandskabler
 - [ ] Korrelasjonsanalyse
 - [ ] Interaktivt frontend-dashboard
 
@@ -24,25 +24,29 @@ Første leveranse (steg 1 av flere):
 Kraft-analyse-/
 ├── ingest/           # Python: henter data fra ENTSO-E/Statnett og lagrer i DB/CSV
 │   ├── entsoe/
-│   │   ├── client.py           # ENTSO-E API-klient (XML-parsing, retry/rate-limit)
-│   │   ├── zones.py            # Bidding zone -> EIC-kode mapping
-│   │   └── production_types.py # PSR-typekode -> lesbar produksjonstype
+│   │   ├── client.py            # ENTSO-E API-klient (XML-parsing, retry/rate-limit)
+│   │   ├── zones.py             # Bidding zone -> EIC-kode mapping
+│   │   ├── production_types.py  # PSR-typekode -> lesbar produksjonstype
+│   │   └── interconnectors.py   # Utenlandskabel -> sonepar (+ GB EIC for North Sea Link)
 │   ├── fetch_prices.py     # Henter day-ahead spotpriser og lagrer i DB + CSV
 │   ├── fetch_production.py # Henter produksjon per type og lagrer i DB + CSV
+│   ├── fetch_flow.py       # Henter grenseflyt på utenlandskabler og lagrer i DB + CSV
 │   ├── plot_prices.py      # Genererer interaktiv graf over siste N dager
 │   └── output/              # Genererte CSV/HTML (ikke i git)
 ├── db/
 │   └── schema.sql      # TimescaleDB-skjema (pris, produksjon, flyt, magasin, forbruk)
-├── backend/            # FastAPI: REST-API for spotpris- og produksjonsdata
+├── backend/            # FastAPI: REST-API for spotpris-, produksjons- og flytdata
 │   ├── app/
-│   │   ├── main.py      # App-oppsett, CORS, /health
-│   │   ├── config.py    # Settings (DATABASE_URL m.m.) via pydantic-settings
-│   │   ├── db.py        # psycopg2 connection pool
-│   │   ├── zones.py     # Sone-metadata (kode -> navn) + validate_zone()
-│   │   ├── schemas.py   # Pydantic-responsmodeller
+│   │   ├── main.py           # App-oppsett, CORS, /health
+│   │   ├── config.py         # Settings (DATABASE_URL m.m.) via pydantic-settings
+│   │   ├── db.py             # psycopg2 connection pool
+│   │   ├── zones.py          # Sone-metadata (kode -> navn) + validate_zone()
+│   │   ├── interconnectors.py # Utenlandskabel-metadata (navn -> sonepar)
+│   │   ├── schemas.py        # Pydantic-responsmodeller
 │   │   └── routers/
 │   │       ├── prices.py      # /prices, /prices/latest, /prices/daily-average, /prices/zones
-│   │       └── production.py  # /production, /production/latest, /production/mix, /production/types
+│   │       ├── production.py  # /production, /production/latest, /production/mix, /production/types
+│   │       └── flow.py        # /flow, /flow/latest, /flow/daily-average, /flow/interconnectors
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/           # (kommer) interaktivt dashboard
@@ -116,9 +120,22 @@ PSR-typekoder (B01, B11, B19, ...) til lesbare typer (`hydro`,
 `production_per_source`-tabellen. Forbruk/pumping i pumpekraftverk
 (businessType A04) filtreres bort — dette er produksjon, ikke last.
 
-### 8. Start backend-API
+### 8. Hent grenseflyt
 
-Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5 og 7).
+```bash
+python fetch_flow.py --days 7
+```
+
+Dette henter fysisk kraftflyt (ENTSO-E documentType A11) for NorNed,
+NordLink, North Sea Link, Skagerrak og Kontiskan, i begge retninger per
+kabel (flyt kan gå begge veier avhengig av time), og lagrer i
+`output/flow.csv` og/eller `cross_border_flow`-tabellen. North Sea Link
+bruker Storbritannia (GB) som eneste bruk av den sonen i ingest — GB har
+ellers ingen pris-/produksjonsingest.
+
+### 9. Start backend-API
+
+Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5, 7 og 8).
 
 ```bash
 cd backend
@@ -144,6 +161,10 @@ Endepunkter:
 | `GET /production?zone=NO1&production_type=hydro&start=...&end=...&limit=...` | Rå produksjonstidsserie (MW), filtrert på sone/type/periode |
 | `GET /production/latest?zone=NO1` | Siste produksjonstall per sone og type |
 | `GET /production/mix?zone=NO1&days=7` | Produksjonsmiks: snitt-MW og prosentandel per type, siste N dager |
+| `GET /flow/interconnectors` | Liste over sporede utenlandskabler (navn + sonepar) |
+| `GET /flow?from_zone=NO2&to_zone=NL&interconnector=NorNed&start=...&end=...&limit=...` | Rå flyt-tidsserie (MW), filtrert på soner/kabel/periode |
+| `GET /flow/latest` | Siste flytverdi per soneparsretning |
+| `GET /flow/daily-average?interconnector=NorNed&days=7` | Daglig snittflyt per soneparsretning |
 
 Alternativt, kjør hele stacken (database + backend) med Docker:
 
@@ -182,11 +203,11 @@ automatisk til `db`-tjenesten.
 
 ## Neste steg
 
-- Utvide ingest til cross-border flow (ENTSO-E documentType A11) —
-  `flyt`-tabellen og et fremtidig `/flow`-endepunkt i backend gjenstår
-- Sette opp Statnett-integrasjon for magasinfylling
-- Utvide backend-API-et med flyt og magasinfylling etter hvert som ingest
-  dekker disse tabellene
+- Sette opp Statnett-integrasjon for magasinfylling, og et tilhørende
+  `/reservoir`-endepunkt i backend
+- Bygge et enkelt korrelasjonslag (pris vs. produksjonsmiks, pris vs.
+  fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt) — enten som
+  egne backend-endepunkter eller beregnet i frontend fra rådataene
 - Bygge frontend-dashboard (foreslår React + Plotly/Recharts for rask
   iterasjon, eller Grafana koblet direkte mot TimescaleDB som raskere
   MVP-alternativ dersom du ikke trenger skreddersydd UI med det første)

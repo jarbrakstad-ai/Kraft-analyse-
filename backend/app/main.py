@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import close_pool, get_cursor
-from .routers import prices, production
+from .routers import flow, prices, production
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.add_middleware(
 
 app.include_router(prices.router)
 app.include_router(production.router)
+app.include_router(flow.router)
 
 
 @app.get("/health")

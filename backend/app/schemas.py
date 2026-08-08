@@ -49,3 +49,33 @@ class ProductionMixShare(BaseModel):
     avg_quantity_mw: float
     share_percent: float
 
+
+class InterconnectorInfo(BaseModel):
+    name: str
+    from_zone: str
+    to_zone: str
+
+
+class FlowPoint(BaseModel):
+    from_zone: str
+    to_zone: str
+    interconnector: str | None
+    timestamp_utc: datetime
+    flow_mw: float
+
+
+class LatestFlow(BaseModel):
+    from_zone: str
+    to_zone: str
+    interconnector: str | None
+    timestamp_utc: datetime
+    flow_mw: float
+
+
+class FlowDailyAverage(BaseModel):
+    from_zone: str
+    to_zone: str
+    interconnector: str | None
+    day: date
+    avg_flow_mw: float
+

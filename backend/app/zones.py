@@ -16,6 +16,7 @@ ZONE_NAMES = {
     "DK2": "Danmark (øst)",
     "NL": "Nederland",
     "SE3": "Sverige (Stockholm)",
+    "GB": "Storbritannia",  # only used for North Sea Link flow, no price/production ingest
 }
 
 VALID_ZONES = list(ZONE_NAMES.keys())

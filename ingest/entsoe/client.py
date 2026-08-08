@@ -46,6 +46,15 @@ class ProductionPoint:
     resolution_min: int
 
 
+@dataclass
+class FlowPoint:
+    from_zone: str
+    to_zone: str
+    timestamp_utc: datetime
+    flow_mw: float
+    resolution_min: int
+
+
 def _strip_ns(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
@@ -132,6 +141,26 @@ class EntsoeClient:
         }
         xml_text = self._get(params)
         return self._parse_generation_xml(xml_text, zone)
+
+    def get_cross_border_flow(
+        self, from_zone: str, from_eic: str, to_zone: str, to_eic: str, period_start: datetime, period_end: datetime
+    ) -> list[FlowPoint]:
+        """
+        Fetch physical flow (document type A11) from from_zone to to_zone.
+
+        A cable can carry power in either direction depending on the hour,
+        so the caller should fetch both directions (swap from/to) to get
+        the full picture for an interconnector.
+        """
+        params = {
+            "documentType": "A11",
+            "out_Domain": from_eic,
+            "in_Domain": to_eic,
+            "periodStart": period_start.strftime("%Y%m%d%H%M"),
+            "periodEnd": period_end.strftime("%Y%m%d%H%M"),
+        }
+        xml_text = self._get(params)
+        return self._parse_flow_xml(xml_text, from_zone, to_zone)
 
     @staticmethod
     def _parse_period(period: ET.Element) -> tuple[datetime | None, int, list[tuple[int, float]]]:
@@ -230,6 +259,39 @@ class EntsoeClient:
                             timestamp_utc=ts,
                             production_type=production_type,
                             quantity_mw=quantity,
+                            resolution_min=resolution_min,
+                        )
+                    )
+
+        return points
+
+    @classmethod
+    def _parse_flow_xml(cls, xml_text: str, from_zone: str, to_zone: str) -> list[FlowPoint]:
+        root = ET.fromstring(xml_text)
+
+        if _strip_ns(root.tag) == "Acknowledgement_MarketDocument":
+            # No flow data for the window — common for the direction that
+            # didn't carry any power during the requested period.
+            return []
+
+        points: list[FlowPoint] = []
+        for tag, timeseries in _local_iter(root):
+            if tag != "TimeSeries":
+                continue
+            for tag2, period in _local_iter(timeseries):
+                if tag2 != "Period":
+                    continue
+                period_start, resolution_min, values = cls._parse_period(period)
+                if period_start is None:
+                    continue
+                for position, quantity in values:
+                    ts = period_start + timedelta(minutes=resolution_min * (position - 1))
+                    points.append(
+                        FlowPoint(
+                            from_zone=from_zone,
+                            to_zone=to_zone,
+                            timestamp_utc=ts,
+                            flow_mw=quantity,
                             resolution_min=resolution_min,
                         )
                     )
