@@ -18,6 +18,7 @@ Første leveranse (steg 1 av flere):
 - [x] Ingest + backend for værdata (MET Norway)
 - [x] Korrelasjonsanalyse (backend)
 - [x] Interaktivt frontend-dashboard
+- [x] Prisprediksjonsmodell (gradient boosting, neste dags pris per sone)
 
 ## Repo-struktur
 
@@ -52,13 +53,18 @@ Kraft-analyse-/
 │   │   ├── interconnectors.py # Utenlandskabel-metadata (navn -> sonepar) + validate_interconnector()
 │   │   ├── stats.py          # pearson_r() — delt av /analysis-endepunktene
 │   │   ├── schemas.py        # Pydantic-responsmodeller
+│   │   ├── ml/
+│   │   │   ├── features.py    # Bygger (sone, dag)-features fra alle 5 datakilder
+│   │   │   ├── train.py       # Trener og lagrer prisprediksjonsmodellen (kjøres manuelt/periodisk)
+│   │   │   └── predict.py     # Laster trent modell og predikerer neste dags pris
 │   │   └── routers/
 │   │       ├── prices.py      # /prices, /prices/latest, /prices/daily-average, /prices/zones
 │   │       ├── production.py  # /production, /production/latest, /production/mix, /production/types
 │   │       ├── flow.py        # /flow, /flow/latest, /flow/daily-average, /flow/interconnectors
 │   │       ├── reservoir.py   # /reservoir, /reservoir/latest
 │   │       ├── weather.py     # /weather, /weather/latest
-│   │       └── analysis.py    # /analysis/price-vs-production, /price-vs-reservoir, /price-spread-vs-flow, /price-vs-weather, /production-vs-weather
+│   │       ├── analysis.py    # /analysis/price-vs-production, /price-vs-reservoir, /price-spread-vs-flow, /price-vs-weather, /production-vs-weather
+│   │       └── predict.py     # /predict/price, /predict/model-info
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/            # React + TypeScript + Vite: interaktivt dashboard
@@ -70,7 +76,8 @@ Kraft-analyse-/
 │   │   ├── useApiData.ts         # Fetch-hook med loading/error-håndtering
 │   │   ├── App.tsx                # Fane-navigasjon
 │   │   └── components/             # PriceSection, ProductionSection, FlowSection,
-│   │                                # ReservoirSection, WeatherSection, AnalysisSection
+│   │                                # ReservoirSection, WeatherSection, AnalysisSection,
+│   │                                # PredictionSection
 │   ├── package.json
 │   └── Dockerfile
 ├── docs/               # Notater og dokumentasjon
@@ -239,12 +246,40 @@ Endepunkter:
 | `GET /analysis/price-spread-vs-flow?zone_a=NO2&zone_b=NL&interconnector=NorNed&days=30` | Prisdifferanse mellom to soner vs. netto kabelflyt, med Pearson-korrelasjon |
 | `GET /analysis/price-vs-weather?zone=NO1&weather_variable=wind_speed_ms&days=30` | Pris vs. værvariabel (temperature_c/wind_speed_ms/precipitation_mm), med Pearson-korrelasjon |
 | `GET /analysis/production-vs-weather?zone=NO1&production_type=wind_onshore&weather_variable=wind_speed_ms&days=30` | Produksjon av en gitt type vs. værvariabel, med Pearson-korrelasjon |
+| `GET /predict/price?zone=NO1` | Predikert snittpris neste dag, med hvilke features som eventuelt manglet data. 503 hvis modellen ikke er trent ennå (se steg 12) |
+| `GET /predict/model-info` | Metadata om trent modell: når den ble trent, holdout-metrikker (MAE/RMSE/R²), feature-viktighet |
 
 Alle `/analysis`-endepunkter returnerer både de justerte punktparene (for
 scatter-plot i frontend) og en `pearson_r`-verdi (`null` hvis færre enn 2
 punkter eller ingen varians i en av seriene).
 
-### 12. Start frontend-dashboardet
+### 12. Tren prisprediksjonsmodellen (valgfritt)
+
+Krever backend-avhengighetene (steg 11) og minst noen ukers historikk med
+data fra alle fem kilder i databasen — gjerne kjør ingest-scriptene
+periodisk en stund før du trener.
+
+```bash
+cd backend
+python -m app.ml.train
+```
+
+Dette bygger én rad per (sone, dag) fra spotpriser, produksjonsmiks,
+grenseflyt, magasinfylling og værdata, med laggede prisverdier og en
+"neste dags snittpris"-target, og trener en `HistGradientBoostingRegressor`
+(scikit-learn) med tidsbasert train/test-splitt (siste 20% av dagene
+holdes utenfor treningen). Modellen lagres til `app/ml/model.joblib`
+(ikke i git — en generert artefakt, gjenskapes ved å kjøre scriptet på
+nytt). Manglende kilder for en sone (f.eks. ingen magasin-/værdata for
+europeiske soner) håndteres som `NaN` av modellen, ikke som feil.
+
+Treningsscriptet skriver ut MAE/RMSE/R² på holdout-settet og de åtte
+viktigste featurene (permutation importance), slik at du kan vurdere om
+modellen faktisk har lært noe fornuftig før du stoler på prediksjonene.
+Kjør på nytt periodisk (f.eks. ukentlig) for å holde modellen oppdatert —
+den retrenes ikke automatisk.
+
+### 13. Start frontend-dashboardet
 
 ```bash
 cd frontend
@@ -294,15 +329,23 @@ servert via nginx), backend på http://localhost:8000, begge koblet mot
 4. **Analyselag** (`backend/app/routers/analysis.py`) — Pearson-korrelasjon
    mellom pris vs. produksjonsmiks, pris vs. fyllingsgrad, prisdifferanse
    mellom soner vs. kabelflyt, og produksjon/pris vs. værvariabler.
-5. **Frontend/dashboard** (`frontend/`) — React + TypeScript + Vite +
+5. **Prediksjonslag** (`backend/app/ml/`) — gradient boosting-modell
+   (scikit-learn `HistGradientBoostingRegressor`) trent på laggede
+   features fra alle fem kilder, predikerer neste dags snittpris per sone.
+   Trenes manuelt/periodisk via `train.py`, serveres via `/predict`.
+6. **Frontend/dashboard** (`frontend/`) — React + TypeScript + Vite +
    Recharts. Fane-basert: tidsserier for pris/produksjon/flyt/magasin/vær,
-   og spredningsdiagram med Pearson-korrelasjon for analyselaget.
+   spredningsdiagram med Pearson-korrelasjon, og prisprediksjon med
+   modell-metrikker og feature-viktighet.
 
 ## Neste steg
 
 - Verifisere `nve/client.py` og `met/client.py` mot ekte API-svar (se
   merknader i steg 9 og 10 over) og justere feltnavn/stasjons-ID-er ved behov
 - Kjøre ingest-scriptene jevnlig (cron/scheduler) slik at dashboardet viser
-  ferske data i stedet for manuelt genererte øyeblikksbilder
+  ferske data i stedet for manuelt genererte øyeblikksbilder — dette gir
+  også prisprediksjonsmodellen ekte historikk å trene på
+- Sette opp periodisk re-trening av prediksjonsmodellen (f.eks. ukentlig
+  cron-jobb som kjører `python -m app.ml.train` etter at ingest har kjørt)
 - Vurdere autentisering/rate-limiting på backend-API-et før eventuell
   offentlig eksponering

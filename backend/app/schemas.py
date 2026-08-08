@@ -180,3 +180,32 @@ class ProductionWeatherCorrelation(BaseModel):
     pearson_r: float | None
     points: list[ProductionWeatherPoint]
 
+
+class PricePrediction(BaseModel):
+    zone: str
+    based_on_day: date
+    predicted_date: date
+    predicted_avg_price_eur_mwh: float
+    missing_features: list[str]
+    model_trained_at: str
+
+
+class ModelMetrics(BaseModel):
+    mae_eur_mwh: float | None = None
+    rmse_eur_mwh: float | None = None
+    r2: float | None = None
+    n_test: int | None = None
+
+
+class FeatureImportance(BaseModel):
+    feature: str
+    importance: float
+
+
+class ModelInfo(BaseModel):
+    trained_at: str
+    n_training_rows: int
+    metrics: ModelMetrics
+    feature_importances: list[FeatureImportance]
+    zone_categories: list[str]
+

@@ -1,8 +1,10 @@
 import type {
   FlowPoint,
   InterconnectorInfo,
+  ModelInfo,
   PriceProductionCorrelation,
   PricePoint,
+  PricePrediction,
   PriceReservoirCorrelation,
   PriceSpreadFlowCorrelation,
   PriceWeatherCorrelation,
@@ -14,6 +16,14 @@ import type {
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function get<T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> {
   const url = new URL(path, BASE_URL);
   for (const [key, value] of Object.entries(params)) {
@@ -21,8 +31,9 @@ async function get<T>(path: string, params: Record<string, string | number | und
   }
   const res = await fetch(url.toString());
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`${res.status} ${res.statusText} for ${url}: ${body}`);
+    const body = await res.json().catch(() => null);
+    const message = body?.detail ?? `${res.status} ${res.statusText} for ${url}`;
+    throw new ApiError(res.status, message);
   }
   return res.json() as Promise<T>;
 }
@@ -54,6 +65,9 @@ export const api = {
 
   priceVsWeather: (zone: string, weatherVariable: string, days: number) =>
     get<PriceWeatherCorrelation>("/analysis/price-vs-weather", { zone, weather_variable: weatherVariable, days }),
+
+  predictPrice: (zone: string) => get<PricePrediction>("/predict/price", { zone }),
+  modelInfo: () => get<ModelInfo>("/predict/model-info"),
 };
 
 function sinceDays(days: number): string {

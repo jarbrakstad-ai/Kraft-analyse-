@@ -103,3 +103,32 @@ export interface PriceWeatherCorrelation {
 }
 
 export type WeatherVariable = "temperature_c" | "wind_speed_ms" | "precipitation_mm";
+
+export interface PricePrediction {
+  zone: string;
+  based_on_day: string;
+  predicted_date: string;
+  predicted_avg_price_eur_mwh: number;
+  missing_features: string[];
+  model_trained_at: string;
+}
+
+export interface ModelMetrics {
+  mae_eur_mwh: number | null;
+  rmse_eur_mwh: number | null;
+  r2: number | null;
+  n_test: number | null;
+}
+
+export interface FeatureImportance {
+  feature: string;
+  importance: number;
+}
+
+export interface ModelInfo {
+  trained_at: string;
+  n_training_rows: number;
+  metrics: ModelMetrics;
+  feature_importances: FeatureImportance[];
+  zone_categories: string[];
+}

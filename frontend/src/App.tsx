@@ -7,8 +7,9 @@ import { FlowSection } from "./components/FlowSection";
 import { ReservoirSection } from "./components/ReservoirSection";
 import { WeatherSection } from "./components/WeatherSection";
 import { AnalysisSection } from "./components/AnalysisSection";
+import { PredictionSection } from "./components/PredictionSection";
 
-type Tab = "priser" | "produksjon" | "flyt" | "magasin" | "vaer" | "analyse";
+type Tab = "priser" | "produksjon" | "flyt" | "magasin" | "vaer" | "analyse" | "prediksjon";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "priser", label: "Priser" },
@@ -17,6 +18,7 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "magasin", label: "Magasinfylling" },
   { value: "vaer", label: "Vær" },
   { value: "analyse", label: "Korrelasjon" },
+  { value: "prediksjon", label: "Prediksjon" },
 ];
 
 function HealthBadge() {
@@ -54,6 +56,7 @@ function App() {
         {tab === "magasin" && <ReservoirSection />}
         {tab === "vaer" && <WeatherSection />}
         {tab === "analyse" && <AnalysisSection />}
+        {tab === "prediksjon" && <PredictionSection />}
       </main>
     </div>
   );
