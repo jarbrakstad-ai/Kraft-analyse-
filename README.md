@@ -17,7 +17,7 @@ Første leveranse (steg 1 av flere):
 - [x] Ingest + backend for magasinfylling (NVE)
 - [x] Ingest + backend for værdata (MET Norway)
 - [x] Korrelasjonsanalyse (backend)
-- [ ] Interaktivt frontend-dashboard
+- [x] Interaktivt frontend-dashboard
 
 ## Repo-struktur
 
@@ -61,9 +61,20 @@ Kraft-analyse-/
 │   │       └── analysis.py    # /analysis/price-vs-production, /price-vs-reservoir, /price-spread-vs-flow, /price-vs-weather, /production-vs-weather
 │   ├── requirements.txt
 │   └── Dockerfile
-├── frontend/           # (kommer) interaktivt dashboard
+├── frontend/            # React + TypeScript + Vite: interaktivt dashboard
+│   ├── src/
+│   │   ├── api.ts            # fetch-wrapper mot backend
+│   │   ├── types.ts           # TS-typer som speiler backend sine Pydantic-modeller
+│   │   ├── constants.ts        # Sonefarger, sonelister, værvariabel-metadata
+│   │   ├── format.ts            # Pivot/formatteringshjelpere for Recharts
+│   │   ├── useApiData.ts         # Fetch-hook med loading/error-håndtering
+│   │   ├── App.tsx                # Fane-navigasjon
+│   │   └── components/             # PriceSection, ProductionSection, FlowSection,
+│   │                                # ReservoirSection, WeatherSection, AnalysisSection
+│   ├── package.json
+│   └── Dockerfile
 ├── docs/               # Notater og dokumentasjon
-├── docker-compose.yml  # TimescaleDB + backend lokalt
+├── docker-compose.yml  # TimescaleDB + backend + frontend lokalt
 └── .env.example
 ```
 
@@ -233,14 +244,29 @@ Alle `/analysis`-endepunkter returnerer både de justerte punktparene (for
 scatter-plot i frontend) og en `pearson_r`-verdi (`null` hvis færre enn 2
 punkter eller ingen varians i en av seriene).
 
-Alternativt, kjør hele stacken (database + backend) med Docker:
+### 12. Start frontend-dashboardet
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+Dashboardet kjører nå på http://localhost:5173. Det har seks faner —
+Priser, Produksjon, Grenseflyt, Magasinfylling, Vær og Korrelasjon — som
+alle henter data fra backend-API-et. Uten data i databasen vises "Ingen
+data" i hver seksjon i stedet for en graf; det er ikke en feil.
+
+Alternativt, kjør hele stacken (database + backend + frontend) med Docker:
 
 ```bash
 docker compose up -d
 ```
 
-Backend blir da tilgjengelig på http://localhost:8000 og kobler seg
-automatisk til `db`-tjenesten.
+Frontend blir da tilgjengelig på http://localhost:5173 (bygget statisk og
+servert via nginx), backend på http://localhost:8000, begge koblet mot
+`db`-tjenesten.
 
 ## Datakilder
 
@@ -268,14 +294,15 @@ automatisk til `db`-tjenesten.
 4. **Analyselag** (`backend/app/routers/analysis.py`) — Pearson-korrelasjon
    mellom pris vs. produksjonsmiks, pris vs. fyllingsgrad, prisdifferanse
    mellom soner vs. kabelflyt, og produksjon/pris vs. værvariabler.
-5. **Frontend/dashboard** (`frontend/`) — interaktive grafer: tidsserier,
-   scatter for korrelasjon, sone-sammenligning.
+5. **Frontend/dashboard** (`frontend/`) — React + TypeScript + Vite +
+   Recharts. Fane-basert: tidsserier for pris/produksjon/flyt/magasin/vær,
+   og spredningsdiagram med Pearson-korrelasjon for analyselaget.
 
 ## Neste steg
 
 - Verifisere `nve/client.py` og `met/client.py` mot ekte API-svar (se
   merknader i steg 9 og 10 over) og justere feltnavn/stasjons-ID-er ved behov
-- Bygge frontend-dashboard (foreslår React + Plotly/Recharts for rask
-  iterasjon, eller Grafana koblet direkte mot TimescaleDB som raskere
-  MVP-alternativ dersom du ikke trenger skreddersydd UI med det første) —
-  `/analysis`-endepunktene er klare til å drive scatter-plottene
+- Kjøre ingest-scriptene jevnlig (cron/scheduler) slik at dashboardet viser
+  ferske data i stedet for manuelt genererte øyeblikksbilder
+- Vurdere autentisering/rate-limiting på backend-API-et før eventuell
+  offentlig eksponering
