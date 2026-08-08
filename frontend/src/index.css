@@ -278,6 +278,14 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
+.prediction-value.prediction-deficit {
+  color: #dc2626;
+}
+
+.prediction-value.prediction-surplus {
+  color: #16a34a;
+}
+
 .prediction-meta {
   color: var(--text-muted);
   font-size: 14px;

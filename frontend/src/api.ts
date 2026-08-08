@@ -1,4 +1,7 @@
 import type {
+  ConsumptionPoint,
+  DeficitForecast,
+  DeficitSummary,
   FlowPoint,
   InterconnectorInfo,
   ModelInfo,
@@ -68,6 +71,12 @@ export const api = {
 
   predictPrice: (zone: string) => get<PricePrediction>("/predict/price", { zone }),
   modelInfo: () => get<ModelInfo>("/predict/model-info"),
+
+  consumption: (zone: string, days: number) => get<ConsumptionPoint[]>("/consumption", { zone, start: sinceDays(days) }),
+
+  deficit: (zone: string, days: number) => get<DeficitSummary>("/deficit", { zone, start: sinceDays(days) }),
+  deficitForecast: (zone: string) => get<DeficitForecast>("/deficit/forecast", { zone }),
+  deficitModelInfo: () => get<ModelInfo>("/deficit/model-info"),
 };
 
 function sinceDays(days: number): string {

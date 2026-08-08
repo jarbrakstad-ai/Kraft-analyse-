@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import close_pool, get_cursor
-from .routers import analysis, flow, predict, prices, production, reservoir, weather
+from .routers import analysis, consumption, deficit, flow, predict, prices, production, reservoir, weather
 
 
 @asynccontextmanager
@@ -34,11 +34,13 @@ app.add_middleware(
 
 app.include_router(prices.router)
 app.include_router(production.router)
+app.include_router(consumption.router)
 app.include_router(flow.router)
 app.include_router(reservoir.router)
 app.include_router(weather.router)
 app.include_router(analysis.router)
 app.include_router(predict.router)
+app.include_router(deficit.router)
 
 
 @app.get("/health")

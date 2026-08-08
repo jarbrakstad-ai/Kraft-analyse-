@@ -191,8 +191,10 @@ class PricePrediction(BaseModel):
 
 
 class ModelMetrics(BaseModel):
-    mae_eur_mwh: float | None = None
-    rmse_eur_mwh: float | None = None
+    """Holdout metrics. Unit depends on the model: EUR/MWh for price, MW for deficit — see ModelInfo.metric_unit."""
+
+    mae: float | None = None
+    rmse: float | None = None
     r2: float | None = None
     n_test: int | None = None
 
@@ -205,7 +207,53 @@ class FeatureImportance(BaseModel):
 class ModelInfo(BaseModel):
     trained_at: str
     n_training_rows: int
+    metric_unit: str
     metrics: ModelMetrics
     feature_importances: list[FeatureImportance]
     zone_categories: list[str]
+
+
+class ConsumptionPoint(BaseModel):
+    zone: str
+    timestamp_utc: datetime
+    load_mw: float
+
+
+class LatestConsumption(BaseModel):
+    zone: str
+    timestamp_utc: datetime
+    load_mw: float
+
+
+class BalancePoint(BaseModel):
+    timestamp_utc: datetime
+    production_mw: float
+    load_mw: float
+    balance_mw: float
+
+
+class DeficitSummary(BaseModel):
+    zone: str
+    n: int
+    avg_balance_mw: float
+    hours_in_deficit: int
+    points: list[BalancePoint]
+
+
+class DeficitForecastZone(BaseModel):
+    zone: str
+    predicted_balance_mw: float
+    based_on_production_mw: float | None
+    based_on_load_mw: float | None
+    missing_features: list[str]
+
+
+class DeficitForecast(BaseModel):
+    zone: str
+    based_on_day: date
+    predicted_date: date
+    predicted_balance_mw: float
+    is_aggregate: bool
+    zone_breakdown: list[DeficitForecastZone]
+    model_trained_at: str
 

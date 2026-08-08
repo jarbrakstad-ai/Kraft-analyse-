@@ -114,8 +114,8 @@ export interface PricePrediction {
 }
 
 export interface ModelMetrics {
-  mae_eur_mwh: number | null;
-  rmse_eur_mwh: number | null;
+  mae: number | null;
+  rmse: number | null;
   r2: number | null;
   n_test: number | null;
 }
@@ -128,7 +128,47 @@ export interface FeatureImportance {
 export interface ModelInfo {
   trained_at: string;
   n_training_rows: number;
+  metric_unit: string;
   metrics: ModelMetrics;
   feature_importances: FeatureImportance[];
   zone_categories: string[];
+}
+
+export interface ConsumptionPoint {
+  zone: string;
+  timestamp_utc: string;
+  load_mw: number;
+}
+
+export interface BalancePoint {
+  timestamp_utc: string;
+  production_mw: number;
+  load_mw: number;
+  balance_mw: number;
+}
+
+export interface DeficitSummary {
+  zone: string;
+  n: number;
+  avg_balance_mw: number;
+  hours_in_deficit: number;
+  points: BalancePoint[];
+}
+
+export interface DeficitForecastZone {
+  zone: string;
+  predicted_balance_mw: number;
+  based_on_production_mw: number | null;
+  based_on_load_mw: number | null;
+  missing_features: string[];
+}
+
+export interface DeficitForecast {
+  zone: string;
+  based_on_day: string;
+  predicted_date: string;
+  predicted_balance_mw: number;
+  is_aggregate: boolean;
+  zone_breakdown: DeficitForecastZone[];
+  model_trained_at: string;
 }

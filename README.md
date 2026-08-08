@@ -19,6 +19,8 @@ Første leveranse (steg 1 av flere):
 - [x] Korrelasjonsanalyse (backend)
 - [x] Interaktivt frontend-dashboard
 - [x] Prisprediksjonsmodell (gradient boosting, neste dags pris per sone)
+- [x] Ingest + backend for forbruk (ENTSO-E Actual Total Load)
+- [x] Kraftbalanse (produksjon − forbruk): historisk + neste dags prediksjon for Norge og sporede europeiske soner
 
 ## Repo-struktur
 
@@ -37,6 +39,7 @@ Kraft-analyse-/
 │   │   └── stations.py           # Sone -> værstasjon-ID
 │   ├── fetch_prices.py     # Henter day-ahead spotpriser og lagrer i DB + CSV
 │   ├── fetch_production.py # Henter produksjon per type og lagrer i DB + CSV
+│   ├── fetch_consumption.py # Henter faktisk forbruk (ENTSO-E A65) og lagrer i DB + CSV
 │   ├── fetch_flow.py       # Henter grenseflyt på utenlandskabler og lagrer i DB + CSV
 │   ├── fetch_reservoir.py  # Henter magasinfylling fra NVE og lagrer i DB + CSV
 │   ├── fetch_weather.py    # Henter værobservasjoner og lagrer i DB + CSV
@@ -54,17 +57,19 @@ Kraft-analyse-/
 │   │   ├── stats.py          # pearson_r() — delt av /analysis-endepunktene
 │   │   ├── schemas.py        # Pydantic-responsmodeller
 │   │   ├── ml/
-│   │   │   ├── features.py    # Bygger (sone, dag)-features fra alle 5 datakilder
-│   │   │   ├── train.py       # Trener og lagrer prisprediksjonsmodellen (kjøres manuelt/periodisk)
-│   │   │   └── predict.py     # Laster trent modell og predikerer neste dags pris
+│   │   │   ├── features.py    # Bygger (sone, dag)-features fra alle 6 datakilder
+│   │   │   ├── train.py       # Trener og lagrer begge modellene (kjøres manuelt/periodisk)
+│   │   │   └── predict.py     # Laster trente modeller og predikerer neste dags pris/balanse
 │   │   └── routers/
 │   │       ├── prices.py      # /prices, /prices/latest, /prices/daily-average, /prices/zones
 │   │       ├── production.py  # /production, /production/latest, /production/mix, /production/types
+│   │       ├── consumption.py # /consumption, /consumption/latest
 │   │       ├── flow.py        # /flow, /flow/latest, /flow/daily-average, /flow/interconnectors
 │   │       ├── reservoir.py   # /reservoir, /reservoir/latest
 │   │       ├── weather.py     # /weather, /weather/latest
 │   │       ├── analysis.py    # /analysis/price-vs-production, /price-vs-reservoir, /price-spread-vs-flow, /price-vs-weather, /production-vs-weather
-│   │       └── predict.py     # /predict/price, /predict/model-info
+│   │       ├── predict.py     # /predict/price, /predict/model-info
+│   │       └── deficit.py     # /deficit, /deficit/forecast, /deficit/model-info
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/            # React + TypeScript + Vite: interaktivt dashboard
@@ -77,7 +82,7 @@ Kraft-analyse-/
 │   │   ├── App.tsx                # Fane-navigasjon
 │   │   └── components/             # PriceSection, ProductionSection, FlowSection,
 │   │                                # ReservoirSection, WeatherSection, AnalysisSection,
-│   │                                # PredictionSection
+│   │                                # PredictionSection, DeficitSection
 │   ├── package.json
 │   └── Dockerfile
 ├── docs/               # Notater og dokumentasjon
@@ -150,7 +155,19 @@ PSR-typekoder (B01, B11, B19, ...) til lesbare typer (`hydro`,
 `production_per_source`-tabellen. Forbruk/pumping i pumpekraftverk
 (businessType A04) filtreres bort — dette er produksjon, ikke last.
 
-### 8. Hent grenseflyt
+### 8. Hent forbruk
+
+```bash
+python fetch_consumption.py --days 7
+```
+
+Dette henter faktisk forbruk (ENTSO-E documentType A65, "Actual Total
+Load") for samme sonesett, og lagrer i `output/consumption.csv` og/eller
+`consumption`-tabellen. Sammen med produksjonsdataene fra forrige steg gir
+dette grunnlaget for `/deficit`-endepunktene i backend: produksjon minus
+forbruk = kraftbalanse, og negativ balanse = underskudd.
+
+### 9. Hent grenseflyt
 
 ```bash
 python fetch_flow.py --days 7
@@ -163,7 +180,7 @@ kabel (flyt kan gå begge veier avhengig av time), og lagrer i
 bruker Storbritannia (GB) som eneste bruk av den sonen i ingest — GB har
 ellers ingen pris-/produksjonsingest.
 
-### 9. Hent magasinfylling
+### 10. Hent magasinfylling
 
 ```bash
 python fetch_reservoir.py --days 365
@@ -181,7 +198,7 @@ men parsingen validerer feltene og feiler med en tydelig feilmelding
 kjør scriptet og se etter en eventuell feilmelding før du stoler på det i
 produksjon.
 
-### 10. Skaff API-nøkkel for MET Norway og hent værdata
+### 11. Skaff API-nøkkel for MET Norway og hent værdata
 
 1. Registrer deg gratis på https://frost.met.no/auth/requestCredentials.html
    (ingen ventetid — nøkkelen utstedes umiddelbart)
@@ -205,9 +222,9 @@ feiler tydelig (med de faktiske nøklene den fant) hvis Frost API sitt
 skjema har endret seg. Stasjons-ID-ene i `met/stations.py` bør også
 dobbeltsjekkes mot https://frost.met.no/sources.html.
 
-### 11. Start backend-API
+### 12. Start backend-API
 
-Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5, 7, 8, 9 og 10).
+Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5, 7, 8, 9, 10 og 11).
 
 ```bash
 cd backend
@@ -233,6 +250,8 @@ Endepunkter:
 | `GET /production?zone=NO1&production_type=hydro&start=...&end=...&limit=...` | Rå produksjonstidsserie (MW), filtrert på sone/type/periode |
 | `GET /production/latest?zone=NO1` | Siste produksjonstall per sone og type |
 | `GET /production/mix?zone=NO1&days=7` | Produksjonsmiks: snitt-MW og prosentandel per type, siste N dager |
+| `GET /consumption?zone=NO1&start=...&end=...&limit=...` | Rå forbrukstidsserie (MW), filtrert på sone/periode |
+| `GET /consumption/latest` | Siste forbrukstall per sone |
 | `GET /flow/interconnectors` | Liste over sporede utenlandskabler (navn + sonepar) |
 | `GET /flow?from_zone=NO2&to_zone=NL&interconnector=NorNed&start=...&end=...&limit=...` | Rå flyt-tidsserie (MW), filtrert på soner/kabel/periode |
 | `GET /flow/latest` | Siste flytverdi per soneparsretning |
@@ -246,17 +265,20 @@ Endepunkter:
 | `GET /analysis/price-spread-vs-flow?zone_a=NO2&zone_b=NL&interconnector=NorNed&days=30` | Prisdifferanse mellom to soner vs. netto kabelflyt, med Pearson-korrelasjon |
 | `GET /analysis/price-vs-weather?zone=NO1&weather_variable=wind_speed_ms&days=30` | Pris vs. værvariabel (temperature_c/wind_speed_ms/precipitation_mm), med Pearson-korrelasjon |
 | `GET /analysis/production-vs-weather?zone=NO1&production_type=wind_onshore&weather_variable=wind_speed_ms&days=30` | Produksjon av en gitt type vs. værvariabel, med Pearson-korrelasjon |
-| `GET /predict/price?zone=NO1` | Predikert snittpris neste dag, med hvilke features som eventuelt manglet data. 503 hvis modellen ikke er trent ennå (se steg 12) |
-| `GET /predict/model-info` | Metadata om trent modell: når den ble trent, holdout-metrikker (MAE/RMSE/R²), feature-viktighet |
+| `GET /predict/price?zone=NO1` | Predikert snittpris neste dag, med hvilke features som eventuelt manglet data. 503 hvis modellen ikke er trent ennå (se steg 13) |
+| `GET /predict/model-info` | Metadata om prismodellen: når den ble trent, holdout-metrikker (MAE/RMSE/R²), feature-viktighet |
+| `GET /deficit?zone=NO1&start=...&end=...&limit=...` | Faktisk historisk kraftbalanse (produksjon − forbruk, MW), timesvis. `zone` kan være en enkeltsone eller aggregatene `NO` (NO1-NO5 samlet) / `EU` (sporede europeiske soner samlet) |
+| `GET /deficit/forecast?zone=NO1` | Predikert kraftbalanse neste dag. For `NO`/`EU` summeres individuelle soneprediksjon, vist i `zone_breakdown` |
+| `GET /deficit/model-info` | Metadata om balansemodellen: metrikker (MAE/RMSE i MW), feature-viktighet |
 
 Alle `/analysis`-endepunkter returnerer både de justerte punktparene (for
 scatter-plot i frontend) og en `pearson_r`-verdi (`null` hvis færre enn 2
 punkter eller ingen varians i en av seriene).
 
-### 12. Tren prisprediksjonsmodellen (valgfritt)
+### 13. Tren modellene (valgfritt)
 
-Krever backend-avhengighetene (steg 11) og minst noen ukers historikk med
-data fra alle fem kilder i databasen — gjerne kjør ingest-scriptene
+Krever backend-avhengighetene (steg 12) og minst noen ukers historikk med
+data fra alle seks kildene i databasen — gjerne kjør ingest-scriptene
 periodisk en stund før du trener.
 
 ```bash
@@ -264,22 +286,31 @@ cd backend
 python -m app.ml.train
 ```
 
-Dette bygger én rad per (sone, dag) fra spotpriser, produksjonsmiks,
-grenseflyt, magasinfylling og værdata, med laggede prisverdier og en
-"neste dags snittpris"-target, og trener en `HistGradientBoostingRegressor`
-(scikit-learn) med tidsbasert train/test-splitt (siste 20% av dagene
-holdes utenfor treningen). Modellen lagres til `app/ml/model.joblib`
-(ikke i git — en generert artefakt, gjenskapes ved å kjøre scriptet på
-nytt). Manglende kilder for en sone (f.eks. ingen magasin-/værdata for
-europeiske soner) håndteres som `NaN` av modellen, ikke som feil.
+Dette trener to modeller i samme kjøring: prismodellen (`model.joblib`)
+og balansemodellen (`deficit_model.joblib`, produksjon minus forbruk neste
+dag — negativ betyr predikert underskudd). Hvis det ikke finnes nok
+forbruksdata ennå (steg 8), hopper scriptet over balansemodellen med en
+tydelig advarsel og trener prismodellen som normalt — det ene datagapet
+stopper ikke det andre.
+
+Begge modellene bygger på samme features: én rad per (sone, dag) fra
+spotpriser, produksjonsmiks, forbruk, grenseflyt, magasinfylling og
+værdata, med laggede prisverdier, dagens kraftbalanse (produksjon minus
+forbruk) og sesongvariabler. Trent med `HistGradientBoostingRegressor`
+(scikit-learn) og tidsbasert train/test-splitt (siste 20% av dagene
+holdes utenfor treningen). Modellene lagres til `app/ml/model.joblib` og
+`app/ml/deficit_model.joblib` (ingen av delene i git — genererte
+artefakter, gjenskapes ved å kjøre scriptet på nytt). Manglende kilder for
+en sone (f.eks. ingen magasin-/værdata for europeiske soner) håndteres
+som `NaN`, ikke som feil.
 
 Treningsscriptet skriver ut MAE/RMSE/R² på holdout-settet og de åtte
-viktigste featurene (permutation importance), slik at du kan vurdere om
-modellen faktisk har lært noe fornuftig før du stoler på prediksjonene.
-Kjør på nytt periodisk (f.eks. ukentlig) for å holde modellen oppdatert —
-den retrenes ikke automatisk.
+viktigste featurene (permutation importance) for hver modell, slik at du
+kan vurdere om modellene faktisk har lært noe fornuftig før du stoler på
+prediksjonene. Kjør på nytt periodisk (f.eks. ukentlig) for å holde
+modellene oppdatert — de retrenes ikke automatisk.
 
-### 13. Start frontend-dashboardet
+### 14. Start frontend-dashboardet
 
 ```bash
 cd frontend
@@ -288,10 +319,14 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Dashboardet kjører nå på http://localhost:5173. Det har seks faner —
-Priser, Produksjon, Grenseflyt, Magasinfylling, Vær og Korrelasjon — som
-alle henter data fra backend-API-et. Uten data i databasen vises "Ingen
-data" i hver seksjon i stedet for en graf; det er ikke en feil.
+Dashboardet kjører nå på http://localhost:5173. Det har åtte faner —
+Priser, Produksjon, Grenseflyt, Magasinfylling, Vær, Korrelasjon,
+Prediksjon og Kraftbalanse — som alle henter data fra backend-API-et.
+Kraftbalanse-fanen viser både historisk produksjon-vs-forbruk og en
+neste-dags-prediksjon for Norge samlet, europeiske soner samlet, eller
+enkeltsoner, med rødt/grønt for underskudd/overskudd. Uten data i
+databasen vises "Ingen data" i hver seksjon i stedet for en graf; det er
+ikke en feil.
 
 Alternativt, kjør hele stacken (database + backend + frontend) med Docker:
 
@@ -329,23 +364,29 @@ servert via nginx), backend på http://localhost:8000, begge koblet mot
 4. **Analyselag** (`backend/app/routers/analysis.py`) — Pearson-korrelasjon
    mellom pris vs. produksjonsmiks, pris vs. fyllingsgrad, prisdifferanse
    mellom soner vs. kabelflyt, og produksjon/pris vs. værvariabler.
-5. **Prediksjonslag** (`backend/app/ml/`) — gradient boosting-modell
+5. **Prediksjonslag** (`backend/app/ml/`) — to gradient boosting-modeller
    (scikit-learn `HistGradientBoostingRegressor`) trent på laggede
-   features fra alle fem kilder, predikerer neste dags snittpris per sone.
-   Trenes manuelt/periodisk via `train.py`, serveres via `/predict`.
+   features fra alle seks kilder: én predikerer neste dags snittpris per
+   sone, én predikerer neste dags kraftbalanse (produksjon minus forbruk)
+   — negativ balanse er et predikert underskudd. Trenes sammen via
+   `train.py`, serveres via `/predict` og `/deficit/forecast`.
 6. **Frontend/dashboard** (`frontend/`) — React + TypeScript + Vite +
    Recharts. Fane-basert: tidsserier for pris/produksjon/flyt/magasin/vær,
-   spredningsdiagram med Pearson-korrelasjon, og prisprediksjon med
-   modell-metrikker og feature-viktighet.
+   spredningsdiagram med Pearson-korrelasjon, prisprediksjon, og
+   kraftbalanse (historisk + prediksjon) for Norge og sporede europeiske
+   soner, hver med modell-metrikker og feature-viktighet.
 
 ## Neste steg
 
 - Verifisere `nve/client.py` og `met/client.py` mot ekte API-svar (se
-  merknader i steg 9 og 10 over) og justere feltnavn/stasjons-ID-er ved behov
+  merknader i steg 10 og 11 over) og justere feltnavn/stasjons-ID-er ved behov
 - Kjøre ingest-scriptene jevnlig (cron/scheduler) slik at dashboardet viser
   ferske data i stedet for manuelt genererte øyeblikksbilder — dette gir
-  også prisprediksjonsmodellen ekte historikk å trene på
-- Sette opp periodisk re-trening av prediksjonsmodellen (f.eks. ukentlig
-  cron-jobb som kjører `python -m app.ml.train` etter at ingest har kjørt)
+  også prediksjonsmodellene ekte historikk å trene på
+- Sette opp periodisk re-trening av modellene (f.eks. ukentlig cron-jobb
+  som kjører `python -m app.ml.train` etter at ingest har kjørt)
+- Utvide "EU"-aggregatet i `/deficit` utover de fem sporede sonene
+  (DE_LU, DK1, DK2, NL, SE3) hvis bredere europeisk dekning blir viktig —
+  krever ingest for flere soner, ikke bare en kodeendring
 - Vurdere autentisering/rate-limiting på backend-API-et før eventuell
   offentlig eksponering

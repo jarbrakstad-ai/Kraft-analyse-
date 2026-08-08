@@ -67,8 +67,8 @@ function ModelInfoCard() {
     <div>
       <div className="model-stats">
         <div>
-          <div className="model-stat-value">{metrics.mae_eur_mwh !== null ? formatNumber(metrics.mae_eur_mwh, 2) : "—"}</div>
-          <div className="model-stat-label">MAE (€/MWh)</div>
+          <div className="model-stat-value">{metrics.mae !== null ? formatNumber(metrics.mae, 2) : "—"}</div>
+          <div className="model-stat-label">MAE ({data.metric_unit})</div>
         </div>
         <div>
           <div className="model-stat-value">{metrics.r2 !== null ? formatNumber(metrics.r2, 3) : "—"}</div>

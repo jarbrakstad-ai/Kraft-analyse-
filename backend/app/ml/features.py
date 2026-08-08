@@ -1,11 +1,15 @@
 """
-Feature engineering for the next-day price prediction model.
+Feature engineering for the next-day price and supply/demand-balance
+prediction models.
 
-Builds one row per (zone, day) from all five data sources (price,
-production, flow, reservoir, weather), with lag features and a next-day
-price target. Used identically by train.py (historical training frame)
-and predict.py (today's feature row, for tomorrow's prediction) so the
-model always sees the same feature shape it was trained on.
+Builds one row per (zone, day) from all six data sources (price,
+production, consumption, flow, reservoir, weather), with lag features and
+two next-day targets: average price, and supply/demand balance
+(production minus consumption — negative means a deficit, the zone
+needs imports to cover demand). Used identically by train.py (historical
+training frame) and predict.py (today's feature row, for tomorrow's
+prediction) so the models always see the same feature shape they were
+trained on.
 
 Missing sources for a given zone (e.g. no reservoir/weather data for
 European zones) are left as NaN rather than imputed — HistGradientBoosting
@@ -46,6 +50,8 @@ FEATURE_COLUMNS = [
     "solar_share",
     "thermal_other_share",
     "total_production_mw",
+    "avg_load_mw",
+    "balance_mw",
     "fill_percent",
     "temp_avg",
     "wind_avg",
@@ -54,7 +60,8 @@ FEATURE_COLUMNS = [
     "day_of_week",
     "month",
 ]
-TARGET_COLUMN = "target_next_day_avg_price"
+TARGET_PRICE_COLUMN = "target_next_day_avg_price"
+TARGET_DEFICIT_COLUMN = "target_next_day_deficit_mw"
 
 
 def _daily_price(conn) -> pd.DataFrame:
@@ -91,6 +98,17 @@ def _daily_production_shares(conn) -> pd.DataFrame:
     for col in SHARE_COLUMNS:
         merged[col] = merged[col].fillna(0.0) / merged["total_production_mw"].replace(0, np.nan)
     return merged
+
+
+def _daily_consumption(conn) -> pd.DataFrame:
+    return pd.read_sql(
+        """
+        SELECT zone, date_trunc('day', timestamp_utc)::date AS day, avg(load_mw) AS avg_load_mw
+        FROM consumption
+        GROUP BY zone, day
+        """,
+        conn,
+    )
 
 
 def _daily_weather(conn) -> pd.DataFrame:
@@ -162,11 +180,13 @@ def _base_daily_table(conn) -> pd.DataFrame:
         return pd.DataFrame(columns=["zone", "day", *FEATURE_COLUMNS])
 
     production = _daily_production_shares(conn)
+    consumption = _daily_consumption(conn)
     weather = _daily_weather(conn)
     flow = _daily_net_flow(conn)
     reservoir = _weekly_reservoir(conn)
 
     daily = price.merge(production, on=["zone", "day"], how="left")
+    daily = daily.merge(consumption, on=["zone", "day"], how="left")
     daily = daily.merge(weather, on=["zone", "day"], how="left")
     daily = daily.merge(flow, on=["zone", "day"], how="left")
     daily["day"] = pd.to_datetime(daily["day"])
@@ -175,6 +195,7 @@ def _base_daily_table(conn) -> pd.DataFrame:
     daily = daily.sort_values(["zone", "day"]).reset_index(drop=True)
     daily["price_avg_lag1"] = daily.groupby("zone")["price_avg"].shift(1)
     daily["price_avg_lag2"] = daily.groupby("zone")["price_avg"].shift(2)
+    daily["balance_mw"] = daily["total_production_mw"] - daily["avg_load_mw"]
     daily["day_of_week"] = pd.to_datetime(daily["day"]).dt.dayofweek
     daily["month"] = pd.to_datetime(daily["day"]).dt.month
 
@@ -183,10 +204,13 @@ def _base_daily_table(conn) -> pd.DataFrame:
 
 def build_training_frame() -> pd.DataFrame:
     """
-    Historical (zone, day) rows with a next-day price target, for
-    train.py. Rows without a known next-day price (each zone's most
-    recent day) or without the lag-1 feature (each zone's first day) are
-    dropped, since both make the row unusable for supervised training.
+    Historical (zone, day) rows with both next-day targets (price and
+    supply/demand balance), for train.py. Rows without the lag-1 feature
+    (each zone's first day) are dropped since they're unusable for any
+    model; rows missing one particular target (e.g. no consumption data
+    ingested yet, so no deficit target) are kept here and dropped per-model
+    by train.py instead, so a gap in one source doesn't waste training
+    rows for the other target.
     """
     with get_conn() as conn:
         daily = _base_daily_table(conn)
@@ -194,9 +218,10 @@ def build_training_frame() -> pd.DataFrame:
     if daily.empty:
         return daily
 
-    daily[TARGET_COLUMN] = daily.groupby("zone")["price_avg"].shift(-1)
-    daily = daily.dropna(subset=[TARGET_COLUMN, "price_avg_lag1"])
-    return daily[["day", *FEATURE_COLUMNS, TARGET_COLUMN]]
+    daily[TARGET_PRICE_COLUMN] = daily.groupby("zone")["price_avg"].shift(-1)
+    daily[TARGET_DEFICIT_COLUMN] = daily.groupby("zone")["balance_mw"].shift(-1)
+    daily = daily.dropna(subset=["price_avg_lag1"])
+    return daily[["day", *FEATURE_COLUMNS, TARGET_PRICE_COLUMN, TARGET_DEFICIT_COLUMN]]
 
 
 def build_prediction_frame(zone: str) -> pd.DataFrame:

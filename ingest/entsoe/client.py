@@ -55,6 +55,14 @@ class FlowPoint:
     resolution_min: int
 
 
+@dataclass
+class LoadPoint:
+    zone: str
+    timestamp_utc: datetime
+    load_mw: float
+    resolution_min: int
+
+
 def _strip_ns(tag: str) -> str:
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
@@ -141,6 +149,23 @@ class EntsoeClient:
         }
         xml_text = self._get(params)
         return self._parse_generation_xml(xml_text, zone)
+
+    def get_actual_total_load(self, zone: str, eic_code: str, period_start: datetime, period_end: datetime) -> list[LoadPoint]:
+        """
+        Fetch actual total load / consumption (document type A65, process
+        type A16 "Realised") for a single bidding zone.
+
+        period_start / period_end must be timezone-aware UTC datetimes.
+        """
+        params = {
+            "documentType": "A65",
+            "processType": "A16",
+            "outBiddingZone_Domain": eic_code,
+            "periodStart": period_start.strftime("%Y%m%d%H%M"),
+            "periodEnd": period_end.strftime("%Y%m%d%H%M"),
+        }
+        xml_text = self._get(params)
+        return self._parse_load_xml(xml_text, zone)
 
     def get_cross_border_flow(
         self, from_zone: str, from_eic: str, to_zone: str, to_eic: str, period_start: datetime, period_end: datetime
@@ -295,5 +320,28 @@ class EntsoeClient:
                             resolution_min=resolution_min,
                         )
                     )
+
+        return points
+
+    @classmethod
+    def _parse_load_xml(cls, xml_text: str, zone: str) -> list[LoadPoint]:
+        root = ET.fromstring(xml_text)
+
+        if _strip_ns(root.tag) == "Acknowledgement_MarketDocument":
+            return []
+
+        points: list[LoadPoint] = []
+        for tag, timeseries in _local_iter(root):
+            if tag != "TimeSeries":
+                continue
+            for tag2, period in _local_iter(timeseries):
+                if tag2 != "Period":
+                    continue
+                period_start, resolution_min, values = cls._parse_period(period)
+                if period_start is None:
+                    continue
+                for position, quantity in values:
+                    ts = period_start + timedelta(minutes=resolution_min * (position - 1))
+                    points.append(LoadPoint(zone=zone, timestamp_utc=ts, load_mw=quantity, resolution_min=resolution_min))
 
         return points
