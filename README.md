@@ -82,7 +82,8 @@ Kraft-analyse-/
 │   │   ├── App.tsx                # Fane-navigasjon
 │   │   └── components/             # PriceSection, ProductionSection, FlowSection,
 │   │                                # ReservoirSection, WeatherSection, AnalysisSection,
-│   │                                # PredictionSection, DeficitSection
+│   │                                # PredictionSection, DeficitSection,
+│   │                                # BalanceMapSection (skjematisk kart)
 │   ├── package.json
 │   └── Dockerfile
 ├── docs/               # Notater og dokumentasjon
@@ -322,11 +323,16 @@ npm run dev
 Dashboardet kjører nå på http://localhost:5173. Det har åtte faner —
 Priser, Produksjon, Grenseflyt, Magasinfylling, Vær, Korrelasjon,
 Prediksjon og Kraftbalanse — som alle henter data fra backend-API-et.
-Kraftbalanse-fanen viser både historisk produksjon-vs-forbruk og en
-neste-dags-prediksjon for Norge samlet, europeiske soner samlet, eller
-enkeltsoner, med rødt/grønt for underskudd/overskudd. Uten data i
-databasen vises "Ingen data" i hver seksjon i stedet for en graf; det er
-ikke en feil.
+Kraftbalanse-fanen viser et **skjematisk kart** over alle ti prisområdene
+(NO1-NO5 + DE_LU, DK1, DK2, NL, SE3) farget etter predikert kraftbalanse
+neste dag (rødt = underskudd, grønt = overskudd — se
+`BalanceMapSection.tsx`), samt historisk produksjon-vs-forbruk og en
+detaljert neste-dags-prediksjon for Norge samlet, europeiske soner
+samlet, eller enkeltsoner. Kartet er en forenklet skjematisk fremstilling
+med relative posisjoner (ikke ekte geografiske grenser) — presis
+kartografi for prisområdene var ikke tilgjengelig i miljøet dette ble
+bygget i. Uten data i databasen vises "Ingen data" i hver seksjon i
+stedet for en graf; det er ikke en feil.
 
 Alternativt, kjør hele stacken (database + backend + frontend) med Docker:
 
@@ -373,8 +379,9 @@ servert via nginx), backend på http://localhost:8000, begge koblet mot
 6. **Frontend/dashboard** (`frontend/`) — React + TypeScript + Vite +
    Recharts. Fane-basert: tidsserier for pris/produksjon/flyt/magasin/vær,
    spredningsdiagram med Pearson-korrelasjon, prisprediksjon, og
-   kraftbalanse (historisk + prediksjon) for Norge og sporede europeiske
-   soner, hver med modell-metrikker og feature-viktighet.
+   kraftbalanse (historisk + prediksjon, pluss et skjematisk fargekodet
+   kart over alle ti sonene) for Norge og sporede europeiske soner, hver
+   med modell-metrikker og feature-viktighet.
 
 ## Neste steg
 

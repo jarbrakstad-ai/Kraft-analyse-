@@ -6,6 +6,7 @@ import { formatDateTimeLabel, formatNumber, formatTimeAxis } from "../format";
 import { useApiData } from "../useApiData";
 import { Card } from "./Card";
 import { StatusBox } from "./StatusBox";
+import { BalanceMapSection } from "./BalanceMapSection";
 
 const ZONE_OPTIONS = [
   { value: "NO", label: "Norge (NO1-NO5 samlet)" },
@@ -146,6 +147,7 @@ function ForecastSection() {
 export function DeficitSection() {
   return (
     <>
+      <BalanceMapSection />
       <ForecastSection />
       <HistorySection />
     </>
