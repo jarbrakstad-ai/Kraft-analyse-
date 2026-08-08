@@ -92,3 +92,21 @@ class LatestReservoir(BaseModel):
     week_start_utc: datetime
     fill_percent: float
 
+
+class WeatherPoint(BaseModel):
+    zone: str
+    station_id: str
+    timestamp_utc: datetime
+    temperature_c: float | None
+    wind_speed_ms: float | None
+    precipitation_mm: float | None
+
+
+class LatestWeather(BaseModel):
+    zone: str
+    station_id: str
+    timestamp_utc: datetime
+    temperature_c: float | None
+    wind_speed_ms: float | None
+    precipitation_mm: float | None
+

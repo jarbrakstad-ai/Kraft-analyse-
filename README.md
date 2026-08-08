@@ -1,8 +1,8 @@
 # Kraft-analyse
 
 Dashboard for analyse av det norske kraftsystemet: sammenhengen mellom
-produksjon og pris i Norge (NO1-NO5) sammenlignet med utvalgte europeiske
-prisområder (DE, DK1, DK2, NL, SE).
+produksjon, pris, magasinfylling og vær i Norge (NO1-NO5) sammenlignet med
+utvalgte europeiske prisområder (DE, DK1, DK2, NL, SE).
 
 ## Status
 
@@ -15,6 +15,7 @@ Første leveranse (steg 1 av flere):
 - [x] Ingest + backend for produksjonsmiks per sone
 - [x] Ingest + backend for import/eksport-flyt på utenlandskabler
 - [x] Ingest + backend for magasinfylling (NVE)
+- [x] Ingest + backend for værdata (MET Norway)
 - [ ] Korrelasjonsanalyse
 - [ ] Interaktivt frontend-dashboard
 
@@ -30,15 +31,19 @@ Kraft-analyse-/
 │   │   └── interconnectors.py   # Utenlandskabel -> sonepar (+ GB EIC for North Sea Link)
 │   ├── nve/
 │   │   └── client.py             # NVE Magasinstatistikk API-klient (ingen nøkkel nødvendig)
+│   ├── met/
+│   │   ├── client.py             # MET Norway Frost API-klient (værobservasjoner)
+│   │   └── stations.py           # Sone -> værstasjon-ID
 │   ├── fetch_prices.py     # Henter day-ahead spotpriser og lagrer i DB + CSV
 │   ├── fetch_production.py # Henter produksjon per type og lagrer i DB + CSV
 │   ├── fetch_flow.py       # Henter grenseflyt på utenlandskabler og lagrer i DB + CSV
 │   ├── fetch_reservoir.py  # Henter magasinfylling fra NVE og lagrer i DB + CSV
+│   ├── fetch_weather.py    # Henter værobservasjoner og lagrer i DB + CSV
 │   ├── plot_prices.py      # Genererer interaktiv graf over siste N dager
 │   └── output/              # Genererte CSV/HTML (ikke i git)
 ├── db/
-│   └── schema.sql      # TimescaleDB-skjema (pris, produksjon, flyt, magasin, forbruk)
-├── backend/            # FastAPI: REST-API for spotpris-, produksjons-, flyt- og magasindata
+│   └── schema.sql      # TimescaleDB-skjema (pris, produksjon, flyt, magasin, vær, forbruk)
+├── backend/            # FastAPI: REST-API for spotpris-, produksjons-, flyt-, magasin- og værdata
 │   ├── app/
 │   │   ├── main.py           # App-oppsett, CORS, /health
 │   │   ├── config.py         # Settings (DATABASE_URL m.m.) via pydantic-settings
@@ -50,7 +55,8 @@ Kraft-analyse-/
 │   │       ├── prices.py      # /prices, /prices/latest, /prices/daily-average, /prices/zones
 │   │       ├── production.py  # /production, /production/latest, /production/mix, /production/types
 │   │       ├── flow.py        # /flow, /flow/latest, /flow/daily-average, /flow/interconnectors
-│   │       └── reservoir.py   # /reservoir, /reservoir/latest
+│   │       ├── reservoir.py   # /reservoir, /reservoir/latest
+│   │       └── weather.py     # /weather, /weather/latest
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/           # (kommer) interaktivt dashboard
@@ -155,9 +161,33 @@ men parsingen validerer feltene og feiler med en tydelig feilmelding
 kjør scriptet og se etter en eventuell feilmelding før du stoler på det i
 produksjon.
 
-### 10. Start backend-API
+### 10. Skaff API-nøkkel for MET Norway og hent værdata
 
-Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5, 7, 8 og 9).
+1. Registrer deg gratis på https://frost.met.no/auth/requestCredentials.html
+   (ingen ventetid — nøkkelen utstedes umiddelbart)
+2. Kopier client-ID-en inn i `.env` som `MET_FROST_CLIENT_ID`
+
+```bash
+python fetch_weather.py --days 7
+```
+
+Dette henter timesvis temperatur, vindstyrke og nedbør fra én representativ
+værstasjon per sone (Oslo, Kristiansand, Trondheim, Tromsø, Bergen — se
+`met/stations.py`), og lagrer i `output/weather.csv` og/eller
+`weather_observation`-tabellen. Værdata er relevant for analysen fordi
+temperatur driver oppvarmingsforbruk, vindstyrke driver vindkraftproduksjon,
+og nedbør driver tilsig til vannkraftmagasinene.
+
+**Merk:** som med NVE-integrasjonen er heller ikke denne verifisert mot et
+ekte API-svar — utgående nettverkstilgang til frost.met.no var blokkert i
+miljøet den ble bygget i. `met/client.py` validerer responsformen og
+feiler tydelig (med de faktiske nøklene den fant) hvis Frost API sitt
+skjema har endret seg. Stasjons-ID-ene i `met/stations.py` bør også
+dobbeltsjekkes mot https://frost.met.no/sources.html.
+
+### 11. Start backend-API
+
+Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5, 7, 8, 9 og 10).
 
 ```bash
 cd backend
@@ -189,6 +219,8 @@ Endepunkter:
 | `GET /flow/daily-average?interconnector=NorNed&days=7` | Daglig snittflyt per soneparsretning |
 | `GET /reservoir?zone=NO1&start=...&end=...&limit=...` | Ukentlig magasinfylling (%), filtrert på sone/periode (default: siste år) |
 | `GET /reservoir/latest` | Siste fyllingsgrad per sone, inkl. nasjonalt aggregat ("NO") |
+| `GET /weather?zone=NO1&start=...&end=...&limit=...` | Rå værobservasjoner (temperatur, vind, nedbør), filtrert på sone/periode |
+| `GET /weather/latest` | Siste værobservasjon per sone |
 
 Alternativt, kjør hele stacken (database + backend) med Docker:
 
@@ -204,6 +236,7 @@ automatisk til `db`-tjenesten.
 | Kilde | Bruk | Krever nøkkel? |
 |---|---|---|
 | [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) | Hovedkilde: pris, produksjon, flyt for Norge og Europa | Ja (gratis registrering) |
+| [MET Norway Frost API](https://frost.met.no/) | Værobservasjoner (temperatur, vind, nedbør) per sone (brukt av `fetch_weather.py`) | Ja (gratis, umiddelbar) |
 | [NVE Magasinstatistikk](https://www.nve.no/energi/analyser-og-statistikk/magasinstatistikk/) | Ukentlig magasinfylling per elspot-sone (brukt av `fetch_reservoir.py`) | Nei |
 | [Statnett "Tall og data"](https://www.statnett.no/for-aktorer-i-kraftsystemet/tall-og-data-fra-kraftsystemet/) | Alternativ kilde for sanntid/historikk på flyt og fyllingsgrad | Nei |
 | [Hva koster strømmen](https://www.hvakosterstrommen.no/strompriser-api) | Backup/supplement for norske spotpriser | Nei |
@@ -217,22 +250,24 @@ automatisk til `db`-tjenesten.
    (f.eks. `systemd timer`, GitHub Actions, eller Airflow ved behov for mer
    robusthet).
 2. **Database** (`db/`) — PostgreSQL med TimescaleDB-extension. Hypertables
-   for pris, produksjon per kilde, flyt mellom soner, magasinfylling og
-   forbruk — alle med sone + timestamp som nøkkel.
+   for pris, produksjon per kilde, flyt mellom soner, magasinfylling, vær
+   og forbruk — alle med sone + timestamp som nøkkel.
 3. **Backend/API** (`backend/`) — REST- eller GraphQL-API som eksponerer
    rå og aggregerte tidsserier til frontend.
 4. **Analyselag** — funksjoner for korrelasjon: pris vs. produksjonsmiks,
-   pris vs. fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt.
+   pris vs. fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt,
+   produksjon/pris vs. værvariabler (temperatur, vind, nedbør).
 5. **Frontend/dashboard** (`frontend/`) — interaktive grafer: tidsserier,
    scatter for korrelasjon, sone-sammenligning.
 
 ## Neste steg
 
-- Verifisere `nve/client.py` mot et ekte API-svar fra NVE (se merknad i
-  steg 9 over) og justere `FIELD_*`-konstantene ved behov
+- Verifisere `nve/client.py` og `met/client.py` mot ekte API-svar (se
+  merknader i steg 9 og 10 over) og justere feltnavn/stasjons-ID-er ved behov
 - Bygge et enkelt korrelasjonslag (pris vs. produksjonsmiks, pris vs.
-  fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt) — enten som
-  egne backend-endepunkter eller beregnet i frontend fra rådataene
+  fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt, produksjon/pris
+  vs. værvariabler) — enten som egne backend-endepunkter eller beregnet i
+  frontend fra rådataene
 - Bygge frontend-dashboard (foreslår React + Plotly/Recharts for rask
   iterasjon, eller Grafana koblet direkte mot TimescaleDB som raskere
   MVP-alternativ dersom du ikke trenger skreddersydd UI med det første)

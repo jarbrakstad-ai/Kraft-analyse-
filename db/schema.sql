@@ -74,3 +74,22 @@ CREATE TABLE IF NOT EXISTS consumption (
 
 SELECT create_hypertable('consumption', 'timestamp_utc', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS idx_consumption_zone_time ON consumption (zone, timestamp_utc DESC);
+
+-- Weather observations from one representative station per zone (MET Norway
+-- Frost API). Explanatory variable for the analysis: temperature drives
+-- heating demand, wind speed drives wind production, precipitation drives
+-- hydro inflow and reservoir fill.
+CREATE TABLE IF NOT EXISTS weather_observation (
+    zone              TEXT        NOT NULL,     -- e.g. 'NO1'..'NO5'
+    station_id        TEXT        NOT NULL,     -- MET Norway source ID, e.g. 'SN18700'
+    timestamp_utc     TIMESTAMPTZ NOT NULL,
+    temperature_c     DOUBLE PRECISION,
+    wind_speed_ms     DOUBLE PRECISION,
+    precipitation_mm  DOUBLE PRECISION,
+    source            TEXT        NOT NULL DEFAULT 'met_frost',
+    inserted_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (zone, timestamp_utc, source)
+);
+
+SELECT create_hypertable('weather_observation', 'timestamp_utc', if_not_exists => TRUE);
+CREATE INDEX IF NOT EXISTS idx_weather_zone_time ON weather_observation (zone, timestamp_utc DESC);
