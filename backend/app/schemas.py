@@ -79,3 +79,16 @@ class FlowDailyAverage(BaseModel):
     day: date
     avg_flow_mw: float
 
+
+class ReservoirPoint(BaseModel):
+    zone: str
+    week_start_utc: datetime
+    fill_percent: float
+    capacity_gwh: float | None
+
+
+class LatestReservoir(BaseModel):
+    zone: str
+    week_start_utc: datetime
+    fill_percent: float
+

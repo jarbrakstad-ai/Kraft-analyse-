@@ -14,7 +14,7 @@ Første leveranse (steg 1 av flere):
 - [x] FastAPI-backend for spotprisdataene
 - [x] Ingest + backend for produksjonsmiks per sone
 - [x] Ingest + backend for import/eksport-flyt på utenlandskabler
-- [ ] Magasinfylling
+- [x] Ingest + backend for magasinfylling (NVE)
 - [ ] Korrelasjonsanalyse
 - [ ] Interaktivt frontend-dashboard
 
@@ -28,14 +28,17 @@ Kraft-analyse-/
 │   │   ├── zones.py             # Bidding zone -> EIC-kode mapping
 │   │   ├── production_types.py  # PSR-typekode -> lesbar produksjonstype
 │   │   └── interconnectors.py   # Utenlandskabel -> sonepar (+ GB EIC for North Sea Link)
+│   ├── nve/
+│   │   └── client.py             # NVE Magasinstatistikk API-klient (ingen nøkkel nødvendig)
 │   ├── fetch_prices.py     # Henter day-ahead spotpriser og lagrer i DB + CSV
 │   ├── fetch_production.py # Henter produksjon per type og lagrer i DB + CSV
 │   ├── fetch_flow.py       # Henter grenseflyt på utenlandskabler og lagrer i DB + CSV
+│   ├── fetch_reservoir.py  # Henter magasinfylling fra NVE og lagrer i DB + CSV
 │   ├── plot_prices.py      # Genererer interaktiv graf over siste N dager
 │   └── output/              # Genererte CSV/HTML (ikke i git)
 ├── db/
 │   └── schema.sql      # TimescaleDB-skjema (pris, produksjon, flyt, magasin, forbruk)
-├── backend/            # FastAPI: REST-API for spotpris-, produksjons- og flytdata
+├── backend/            # FastAPI: REST-API for spotpris-, produksjons-, flyt- og magasindata
 │   ├── app/
 │   │   ├── main.py           # App-oppsett, CORS, /health
 │   │   ├── config.py         # Settings (DATABASE_URL m.m.) via pydantic-settings
@@ -46,7 +49,8 @@ Kraft-analyse-/
 │   │   └── routers/
 │   │       ├── prices.py      # /prices, /prices/latest, /prices/daily-average, /prices/zones
 │   │       ├── production.py  # /production, /production/latest, /production/mix, /production/types
-│   │       └── flow.py        # /flow, /flow/latest, /flow/daily-average, /flow/interconnectors
+│   │       ├── flow.py        # /flow, /flow/latest, /flow/daily-average, /flow/interconnectors
+│   │       └── reservoir.py   # /reservoir, /reservoir/latest
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/           # (kommer) interaktivt dashboard
@@ -133,9 +137,27 @@ kabel (flyt kan gå begge veier avhengig av time), og lagrer i
 bruker Storbritannia (GB) som eneste bruk av den sonen i ingest — GB har
 ellers ingen pris-/produksjonsingest.
 
-### 9. Start backend-API
+### 9. Hent magasinfylling
 
-Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5, 7 og 8).
+```bash
+python fetch_reservoir.py --days 365
+```
+
+Dette henter ukentlig magasinfylling for NO1-NO5 og hele-landet-aggregatet
+("NO") fra NVEs Magasinstatistikk-API og lagrer i `output/reservoir.csv`
+og/eller `reservoir_fill`-tabellen. Krever ingen API-nøkkel.
+
+**Merk:** denne integrasjonen er ikke verifisert mot et ekte API-svar —
+utgående nettverkstilgang til nve.no var blokkert i miljøet den ble bygget
+i. Feltnavnene i `nve/client.py` er basert på NVEs dokumenterte skjema,
+men parsingen validerer feltene og feiler med en tydelig feilmelding
+(inkl. de faktiske feltnavnene den fant) hvis skjemaet har endret seg —
+kjør scriptet og se etter en eventuell feilmelding før du stoler på det i
+produksjon.
+
+### 10. Start backend-API
+
+Krever at databasen kjører (steg 3) og at den er fylt med data (steg 5, 7, 8 og 9).
 
 ```bash
 cd backend
@@ -165,6 +187,8 @@ Endepunkter:
 | `GET /flow?from_zone=NO2&to_zone=NL&interconnector=NorNed&start=...&end=...&limit=...` | Rå flyt-tidsserie (MW), filtrert på soner/kabel/periode |
 | `GET /flow/latest` | Siste flytverdi per soneparsretning |
 | `GET /flow/daily-average?interconnector=NorNed&days=7` | Daglig snittflyt per soneparsretning |
+| `GET /reservoir?zone=NO1&start=...&end=...&limit=...` | Ukentlig magasinfylling (%), filtrert på sone/periode (default: siste år) |
+| `GET /reservoir/latest` | Siste fyllingsgrad per sone, inkl. nasjonalt aggregat ("NO") |
 
 Alternativt, kjør hele stacken (database + backend) med Docker:
 
@@ -180,7 +204,8 @@ automatisk til `db`-tjenesten.
 | Kilde | Bruk | Krever nøkkel? |
 |---|---|---|
 | [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) | Hovedkilde: pris, produksjon, flyt for Norge og Europa | Ja (gratis registrering) |
-| [Statnett "Tall og data"](https://www.statnett.no/for-aktorer-i-kraftsystemet/tall-og-data-fra-kraftsystemet/) | Sanntid/historikk for flyt, fyllingsgrad, import/eksport | Nei |
+| [NVE Magasinstatistikk](https://www.nve.no/energi/analyser-og-statistikk/magasinstatistikk/) | Ukentlig magasinfylling per elspot-sone (brukt av `fetch_reservoir.py`) | Nei |
+| [Statnett "Tall og data"](https://www.statnett.no/for-aktorer-i-kraftsystemet/tall-og-data-fra-kraftsystemet/) | Alternativ kilde for sanntid/historikk på flyt og fyllingsgrad | Nei |
 | [Hva koster strømmen](https://www.hvakosterstrommen.no/strompriser-api) | Backup/supplement for norske spotpriser | Nei |
 | [Elhub](https://elhub.no/data/) | Forbruk og produksjon i Norge (CSV/XLSX) | Nei |
 | [NVE dataplattform](https://www.nve.no/energi/energisystem/kraftproduksjon/) | Nettleie/produksjonsdata | Nei (delvis) |
@@ -203,8 +228,8 @@ automatisk til `db`-tjenesten.
 
 ## Neste steg
 
-- Sette opp Statnett-integrasjon for magasinfylling, og et tilhørende
-  `/reservoir`-endepunkt i backend
+- Verifisere `nve/client.py` mot et ekte API-svar fra NVE (se merknad i
+  steg 9 over) og justere `FIELD_*`-konstantene ved behov
 - Bygge et enkelt korrelasjonslag (pris vs. produksjonsmiks, pris vs.
   fyllingsgrad, prisdifferanse mellom soner vs. kabelflyt) — enten som
   egne backend-endepunkter eller beregnet i frontend fra rådataene
