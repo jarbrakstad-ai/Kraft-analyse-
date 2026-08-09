@@ -8,17 +8,20 @@ router = APIRouter(prefix="/capacity", tags=["capacity"])
 
 # Jobs-per-MW coefficient for wind, from NVE's "Verdiskapning" analysis of
 # land-based wind power: employment in a county rose by 0.48 jobs per newly
-# installed MW. No equivalent published figure was found for hydro, so
-# hydro plants get no jobs estimate rather than a guessed one. The 0.48
-# figure itself isn't clearly split into construction-phase vs. permanent
-# operational jobs in what's publicly available — treat this as a rough,
-# single-number estimate, not a precise or verified count.
+# installed MW. This is a COMBINED figure covering both building and
+# operating the plant — not construction-phase jobs alone and not
+# operational jobs alone, but the two summed. No equivalent published
+# figure was found for hydro, so hydro plants get no jobs estimate rather
+# than a guessed one. Still not independently verified against the primary
+# NVE source (nve.no was blocked in the environment this was built in) —
+# treat it as a rough estimate, not a precise or audited count.
 WIND_JOBS_PER_MW = 0.48
 JOBS_ESTIMATE_NOTE = (
     "Anslåtte arbeidsplasser er kun beregnet for vindkraft, basert på NVEs publiserte anslag "
     f"({WIND_JOBS_PER_MW} arbeidsplasser per ny installert MW i et fylke). Ingen tilsvarende tall er "
-    "funnet for vannkraft. Tallet skiller ikke tydelig mellom midlertidige anleggsjobber og permanente "
-    "driftsjobber — behandle det som et grovt anslag, ikke en målt sysselsettingseffekt."
+    "funnet for vannkraft. Tallet er en samlet sysselsettingseffekt av både å bygge og drifte kraftverket "
+    "— ikke kun anleggsfasen og ikke kun driftsfasen alene — og bør uansett behandles som et grovt anslag, "
+    "ikke en presist målt sysselsettingseffekt."
 )
 
 

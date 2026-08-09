@@ -468,10 +468,11 @@ Tabellen og søylene viser også **anslåtte arbeidsplasser** per anlegg/sone
 `WIND_JOBS_PER_MW = 0.48`) fra NVEs publiserte anslag om at sysselsettingen
 i et fylke øker med 0,48 arbeidsplasser per ny installert MW landbasert
 vindkraft. Kun beregnet for vindkraft — ingen tilsvarende publisert tall er
-funnet for vannkraft. Koeffisienten skiller ikke tydelig mellom
-midlertidige anleggsjobber og permanente driftsjobber, så tallet er et
-grovt anslag, ikke en målt sysselsettingseffekt — API-et sender alltid med
-en forklarende `jobs_estimate_note` som frontend viser sammen med tallene.
+funnet for vannkraft. Koeffisienten er en **samlet** sysselsettingseffekt av
+både å bygge og drifte kraftverket (ikke anleggsfasen eller driftsfasen
+alene), og er uansett ikke uavhengig verifisert mot NVEs primærkilde (se
+advarsel over) — API-et sender alltid med en forklarende
+`jobs_estimate_note` som frontend viser sammen med tallene.
 
 ## Datakilder
 
