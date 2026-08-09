@@ -85,6 +85,18 @@ def get_capacity_pipeline(
 
     unmapped_effect_mw = sum(p.installed_effect_mw or 0 for p in plants if p.zone is None)
 
+    # National jobs total is always over ALL plants in the table, regardless
+    # of the `zone` query filter above — a separate, unfiltered query so
+    # filtering to one zone doesn't silently mislabel that zone's total as
+    # "national". Also includes zone=NULL (unmapped-county) plants, which
+    # the per-zone summaries above can't attribute anywhere.
+    with get_cursor() as cur:
+        cur.execute("SELECT source_type, installed_effect_mw FROM capacity_pipeline")
+        all_rows = cur.fetchall()
+    national_estimated_jobs = sum(
+        _estimated_jobs(r["source_type"], r["installed_effect_mw"]) or 0 for r in all_rows
+    )
+
     with get_cursor() as cur:
         cur.execute("SELECT max(inserted_at) AS last_updated FROM capacity_pipeline")
         row = cur.fetchone()
@@ -93,6 +105,7 @@ def get_capacity_pipeline(
     return CapacityPipeline(
         zones=summaries,
         unmapped_effect_mw=unmapped_effect_mw,
+        national_estimated_jobs=national_estimated_jobs,
         plants=plants,
         last_updated=last_updated,
         jobs_estimate_note=JOBS_ESTIMATE_NOTE,

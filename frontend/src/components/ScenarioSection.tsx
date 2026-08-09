@@ -118,6 +118,16 @@ export function ScenarioSection() {
 
         {pipeline.data && pipeline.data.plants.length > 0 && (
           <>
+            {pipeline.data.national_estimated_jobs > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div className="prediction-value">~{formatNumber(pipeline.data.national_estimated_jobs, 0)}</div>
+                <div className="prediction-meta">
+                  anslåtte arbeidsplasser i Norge fra vindkraft under bygging/med konsesjon (bygging + drift samlet,
+                  se forbehold under)
+                </div>
+              </div>
+            )}
+
             <div className="feature-bars" style={{ marginBottom: 20 }}>
               {pipeline.data.zones.map((z) => (
                 <div key={z.zone} className="feature-bar-row pipeline-bar-row">

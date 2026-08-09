@@ -317,6 +317,7 @@ class PipelineZoneSummary(BaseModel):
 class CapacityPipeline(BaseModel):
     zones: list[PipelineZoneSummary]
     unmapped_effect_mw: float  # sum for plants whose county couldn't be mapped to a zone
+    national_estimated_jobs: float  # sum of estimated_jobs over ALL plants, incl. zone=NULL ones
     plants: list[PipelinePlant]
     last_updated: datetime | None
     jobs_estimate_note: str

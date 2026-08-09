@@ -215,6 +215,7 @@ export interface PipelineZoneSummary {
 export interface CapacityPipeline {
   zones: PipelineZoneSummary[];
   unmapped_effect_mw: number;
+  national_estimated_jobs: number;
   plants: PipelinePlant[];
   last_updated: string | null;
   jobs_estimate_note: string;
