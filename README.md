@@ -464,15 +464,22 @@ Kjør `python fetch_capacity_pipeline.py --no-db` med ekte nettverkstilgang
 og sjekk output/eventuell feilmelding før dette brukes til noe viktig.
 
 Tabellen og søylene viser også **anslåtte arbeidsplasser** per anlegg/sone
-— beregnet på backend (`backend/app/routers/capacity.py`,
-`WIND_JOBS_PER_MW = 0.48`) fra NVEs publiserte anslag om at sysselsettingen
-i et fylke øker med 0,48 arbeidsplasser per ny installert MW landbasert
-vindkraft. Kun beregnet for vindkraft — ingen tilsvarende publisert tall er
-funnet for vannkraft. Koeffisienten er en **samlet** sysselsettingseffekt av
-både å bygge og drifte kraftverket (ikke anleggsfasen eller driftsfasen
-alene), og er uansett ikke uavhengig verifisert mot NVEs primærkilde (se
-advarsel over) — API-et sender alltid med en forklarende
-`jobs_estimate_note` som frontend viser sammen med tallene.
+— beregnet på backend (`backend/app/routers/capacity.py`), i to separate
+faser i stedet for ett samletall (siden den ene er midlertidig og den
+andre permanent, og de ikke bør blandes sammen):
+
+- `WIND_CONSTRUCTION_JOBS_PER_MW = 100/80 ≈ 1,25` — midlertidige
+  arbeidsplasser under bygging, basert på et erfaringstall om at et 80 MW
+  vindkraftprosjekt skaper 100+ arbeidsplasser i byggeperioden.
+- `WIND_OPERATION_JOBS_PER_MW = 1/15 ≈ 0,07` — permanente arbeidsplasser i
+  drift, basert på et erfaringstall om ca. 1 årsverk per 15 MW installert
+  (varierer mye fra anlegg til anlegg).
+
+Kun beregnet for vindkraft — ingen tilsvarende publiserte tall er funnet
+for vannkraft. Begge koeffisientene kommer fra grove erfaringstall, ikke
+uavhengig verifisert mot en primærkilde i dette miljøet (se advarsel
+over) — API-et sender alltid med en forklarende `jobs_estimate_note` som
+frontend viser sammen med tallene.
 
 ## Datakilder
 

@@ -6,22 +6,29 @@ from ..zones import NORWEGIAN_ZONES
 
 router = APIRouter(prefix="/capacity", tags=["capacity"])
 
-# Jobs-per-MW coefficient for wind, from NVE's "Verdiskapning" analysis of
-# land-based wind power: employment in a county rose by 0.48 jobs per newly
-# installed MW. This is a COMBINED figure covering both building and
-# operating the plant — not construction-phase jobs alone and not
-# operational jobs alone, but the two summed. No equivalent published
-# figure was found for hydro, so hydro plants get no jobs estimate rather
-# than a guessed one. Still not independently verified against the primary
-# NVE source (nve.no was blocked in the environment this was built in) —
-# treat it as a rough estimate, not a precise or audited count.
-WIND_JOBS_PER_MW = 0.48
+# Jobs-per-MW coefficients for wind, land-based. Two separate phases —
+# temporary construction jobs and permanent operational jobs — not one
+# combined number, since conflating a one-off construction headcount with
+# an ongoing operational headcount would misrepresent both.
+#
+# - Construction: an 80 MW wind project has been reported to create 100+
+#   jobs during the build phase => ~1.25 jobs/MW, temporary.
+# - Operation: experience-based figure of roughly 1 person-year per 15 MW
+#   installed => ~0.067 jobs/MW, permanent, varies a lot plant to plant.
+#
+# No equivalent published figures were found for hydro, so hydro plants
+# get no jobs estimate rather than a guessed one. None of this is
+# independently verified against NVE's primary source (nve.no was blocked
+# in the environment this was built in) — treat both as rough estimates,
+# not precise or audited counts.
+WIND_CONSTRUCTION_JOBS_PER_MW = 100 / 80  # ~1.25
+WIND_OPERATION_JOBS_PER_MW = 1 / 15  # ~0.067
 JOBS_ESTIMATE_NOTE = (
-    "Anslåtte arbeidsplasser er kun beregnet for vindkraft, basert på NVEs publiserte anslag "
-    f"({WIND_JOBS_PER_MW} arbeidsplasser per ny installert MW i et fylke). Ingen tilsvarende tall er "
-    "funnet for vannkraft. Tallet er en samlet sysselsettingseffekt av både å bygge og drifte kraftverket "
-    "— ikke kun anleggsfasen og ikke kun driftsfasen alene — og bør uansett behandles som et grovt anslag, "
-    "ikke en presist målt sysselsettingseffekt."
+    "Anslåtte arbeidsplasser er kun beregnet for vindkraft, i to separate faser: "
+    f"~{WIND_CONSTRUCTION_JOBS_PER_MW:.2f} midlertidige arbeidsplasser per MW under bygging, og "
+    f"~{WIND_OPERATION_JOBS_PER_MW:.2f} permanente arbeidsplasser per MW i drift. Ingen tilsvarende tall er "
+    "funnet for vannkraft. Begge tallene er grove erfaringsbaserte anslag (ikke NVE-tall verifisert mot "
+    "primærkilde i dette miljøet) og varierer mye fra anlegg til anlegg."
 )
 
 
@@ -29,10 +36,16 @@ def _is_under_construction(status: str) -> bool:
     return "bygging" in status.lower()
 
 
-def _estimated_jobs(source_type: str, installed_effect_mw: float | None) -> float | None:
+def _estimated_construction_jobs(source_type: str, installed_effect_mw: float | None) -> float | None:
     if source_type != "wind" or installed_effect_mw is None:
         return None
-    return installed_effect_mw * WIND_JOBS_PER_MW
+    return installed_effect_mw * WIND_CONSTRUCTION_JOBS_PER_MW
+
+
+def _estimated_operation_jobs(source_type: str, installed_effect_mw: float | None) -> float | None:
+    if source_type != "wind" or installed_effect_mw is None:
+        return None
+    return installed_effect_mw * WIND_OPERATION_JOBS_PER_MW
 
 
 @router.get("/pipeline", response_model=CapacityPipeline)
@@ -62,7 +75,11 @@ def get_capacity_pipeline(
         rows = cur.fetchall()
 
     plants = [
-        PipelinePlant(**row, estimated_jobs=_estimated_jobs(row["source_type"], row["installed_effect_mw"]))
+        PipelinePlant(
+            **row,
+            estimated_construction_jobs=_estimated_construction_jobs(row["source_type"], row["installed_effect_mw"]),
+            estimated_operation_jobs=_estimated_operation_jobs(row["source_type"], row["installed_effect_mw"]),
+        )
         for row in rows
     ]
 
@@ -79,22 +96,26 @@ def get_capacity_pipeline(
                 under_construction_mw=under_construction,
                 concession_granted_mw=concession_granted,
                 n_plants=len(zone_plants),
-                estimated_jobs=sum(p.estimated_jobs or 0 for p in zone_plants),
+                estimated_construction_jobs=sum(p.estimated_construction_jobs or 0 for p in zone_plants),
+                estimated_operation_jobs=sum(p.estimated_operation_jobs or 0 for p in zone_plants),
             )
         )
 
     unmapped_effect_mw = sum(p.installed_effect_mw or 0 for p in plants if p.zone is None)
 
-    # National jobs total is always over ALL plants in the table, regardless
-    # of the `zone` query filter above — a separate, unfiltered query so
-    # filtering to one zone doesn't silently mislabel that zone's total as
-    # "national". Also includes zone=NULL (unmapped-county) plants, which
-    # the per-zone summaries above can't attribute anywhere.
+    # National jobs totals are always over ALL plants in the table,
+    # regardless of the `zone` query filter above — a separate, unfiltered
+    # query so filtering to one zone doesn't silently mislabel that zone's
+    # total as "national". Also includes zone=NULL (unmapped-county)
+    # plants, which the per-zone summaries above can't attribute anywhere.
     with get_cursor() as cur:
         cur.execute("SELECT source_type, installed_effect_mw FROM capacity_pipeline")
         all_rows = cur.fetchall()
-    national_estimated_jobs = sum(
-        _estimated_jobs(r["source_type"], r["installed_effect_mw"]) or 0 for r in all_rows
+    national_estimated_construction_jobs = sum(
+        _estimated_construction_jobs(r["source_type"], r["installed_effect_mw"]) or 0 for r in all_rows
+    )
+    national_estimated_operation_jobs = sum(
+        _estimated_operation_jobs(r["source_type"], r["installed_effect_mw"]) or 0 for r in all_rows
     )
 
     with get_cursor() as cur:
@@ -105,7 +126,8 @@ def get_capacity_pipeline(
     return CapacityPipeline(
         zones=summaries,
         unmapped_effect_mw=unmapped_effect_mw,
-        national_estimated_jobs=national_estimated_jobs,
+        national_estimated_construction_jobs=national_estimated_construction_jobs,
+        national_estimated_operation_jobs=national_estimated_operation_jobs,
         plants=plants,
         last_updated=last_updated,
         jobs_estimate_note=JOBS_ESTIMATE_NOTE,

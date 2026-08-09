@@ -294,7 +294,11 @@ class PipelinePlant(BaseModel):
     zone: str | None
     installed_effect_mw: float | None
     expected_commissioning: date | None
-    estimated_jobs: float | None  # rough estimate, wind only — see CapacityPipeline.jobs_estimate_note
+    # Rough estimates, wind only — two separate phases, not one combined
+    # number, since one is temporary and the other permanent. See
+    # CapacityPipeline.jobs_estimate_note.
+    estimated_construction_jobs: float | None
+    estimated_operation_jobs: float | None
 
 
 class PipelineZoneSummary(BaseModel):
@@ -311,13 +315,15 @@ class PipelineZoneSummary(BaseModel):
     under_construction_mw: float
     concession_granted_mw: float
     n_plants: int
-    estimated_jobs: float  # sum of PipelinePlant.estimated_jobs for this zone (0 if none/hydro-only)
+    estimated_construction_jobs: float  # sum for this zone (0 if none/hydro-only)
+    estimated_operation_jobs: float  # sum for this zone (0 if none/hydro-only)
 
 
 class CapacityPipeline(BaseModel):
     zones: list[PipelineZoneSummary]
     unmapped_effect_mw: float  # sum for plants whose county couldn't be mapped to a zone
-    national_estimated_jobs: float  # sum of estimated_jobs over ALL plants, incl. zone=NULL ones
+    national_estimated_construction_jobs: float  # sum over ALL plants, incl. zone=NULL ones
+    national_estimated_operation_jobs: float  # sum over ALL plants, incl. zone=NULL ones
     plants: list[PipelinePlant]
     last_updated: datetime | None
     jobs_estimate_note: str

@@ -118,12 +118,15 @@ export function ScenarioSection() {
 
         {pipeline.data && pipeline.data.plants.length > 0 && (
           <>
-            {pipeline.data.national_estimated_jobs > 0 && (
-              <div style={{ marginBottom: 20 }}>
-                <div className="prediction-value">~{formatNumber(pipeline.data.national_estimated_jobs, 0)}</div>
-                <div className="prediction-meta">
-                  anslåtte arbeidsplasser i Norge fra vindkraft under bygging/med konsesjon (bygging + drift samlet,
-                  se forbehold under)
+            {(pipeline.data.national_estimated_construction_jobs > 0 || pipeline.data.national_estimated_operation_jobs > 0) && (
+              <div className="model-stats">
+                <div>
+                  <div className="model-stat-value">~{formatNumber(pipeline.data.national_estimated_construction_jobs, 0)}</div>
+                  <div className="model-stat-label">Arbeidsplasser under bygging (midlertidig, Norge)</div>
+                </div>
+                <div>
+                  <div className="model-stat-value">~{formatNumber(pipeline.data.national_estimated_operation_jobs, 0)}</div>
+                  <div className="model-stat-label">Arbeidsplasser i drift (permanent, Norge)</div>
                 </div>
               </div>
             )}
@@ -142,7 +145,6 @@ export function ScenarioSection() {
                   </div>
                   <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 13, color: "var(--text-muted)" }}>
                     {formatNumber(z.total_effect_mw, 0)} MW
-                    {z.estimated_jobs > 0 && ` · ~${formatNumber(z.estimated_jobs, 0)} arb.plasser`}
                   </span>
                 </div>
               ))}
@@ -156,7 +158,8 @@ export function ScenarioSection() {
                   <th>Status</th>
                   <th>Sone</th>
                   <th>Effekt (MW)</th>
-                  <th>Anslåtte arbeidsplasser</th>
+                  <th>Arb.plasser, bygging</th>
+                  <th>Arb.plasser, drift</th>
                   <th>Forventet idriftsettelse</th>
                 </tr>
               </thead>
@@ -168,7 +171,8 @@ export function ScenarioSection() {
                     <td>{p.status}</td>
                     <td>{p.zone ?? p.county ?? "Ukjent"}</td>
                     <td style={{ textAlign: "right" }}>{p.installed_effect_mw != null ? formatNumber(p.installed_effect_mw, 1) : "—"}</td>
-                    <td style={{ textAlign: "right" }}>{p.estimated_jobs != null ? `~${formatNumber(p.estimated_jobs, 0)}` : "—"}</td>
+                    <td style={{ textAlign: "right" }}>{p.estimated_construction_jobs != null ? `~${formatNumber(p.estimated_construction_jobs, 0)}` : "—"}</td>
+                    <td style={{ textAlign: "right" }}>{p.estimated_operation_jobs != null ? `~${formatNumber(p.estimated_operation_jobs, 0)}` : "—"}</td>
                     <td>{p.expected_commissioning ?? "—"}</td>
                   </tr>
                 ))}
