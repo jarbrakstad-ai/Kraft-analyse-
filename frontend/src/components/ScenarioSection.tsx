@@ -132,6 +132,7 @@ export function ScenarioSection() {
                   </div>
                   <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 13, color: "var(--text-muted)" }}>
                     {formatNumber(z.total_effect_mw, 0)} MW
+                    {z.estimated_jobs > 0 && ` · ~${formatNumber(z.estimated_jobs, 0)} arb.plasser`}
                   </span>
                 </div>
               ))}
@@ -145,6 +146,7 @@ export function ScenarioSection() {
                   <th>Status</th>
                   <th>Sone</th>
                   <th>Effekt (MW)</th>
+                  <th>Anslåtte arbeidsplasser</th>
                   <th>Forventet idriftsettelse</th>
                 </tr>
               </thead>
@@ -156,6 +158,7 @@ export function ScenarioSection() {
                     <td>{p.status}</td>
                     <td>{p.zone ?? p.county ?? "Ukjent"}</td>
                     <td style={{ textAlign: "right" }}>{p.installed_effect_mw != null ? formatNumber(p.installed_effect_mw, 1) : "—"}</td>
+                    <td style={{ textAlign: "right" }}>{p.estimated_jobs != null ? `~${formatNumber(p.estimated_jobs, 0)}` : "—"}</td>
                     <td>{p.expected_commissioning ?? "—"}</td>
                   </tr>
                 ))}
@@ -170,10 +173,13 @@ export function ScenarioSection() {
             )}
 
             <div className="prediction-warning" style={{ marginTop: 16 }}>
-              NVE-integrasjonen er bygget defensivt, men feltnavnene i API-responsen er ikke verifisert mot en reell
-              kjøring i dette miljøet (nettverkstilgang til nve.no var blokkert under utvikling) — se
-              ingest/nve/client.py. Vinddekningen kan også være ufullstendig: kun ett bekreftet API-endepunkt for
-              vindkraft ble funnet, og det dekker mulig bare kraftverk allerede i drift.
+              <p style={{ margin: "0 0 8px" }}>
+                NVE-integrasjonen er bygget defensivt, men feltnavnene i API-responsen er ikke verifisert mot en reell
+                kjøring i dette miljøet (nettverkstilgang til nve.no var blokkert under utvikling) — se
+                ingest/nve/client.py. Vinddekningen kan også være ufullstendig: kun ett bekreftet API-endepunkt for
+                vindkraft ble funnet, og det dekker mulig bare kraftverk allerede i drift.
+              </p>
+              <p style={{ margin: 0 }}>{pipeline.data.jobs_estimate_note}</p>
             </div>
           </>
         )}

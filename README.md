@@ -463,6 +463,16 @@ mappe feil data — samme mønster som `fetch_reservoir.py` allerede brukte.
 Kjør `python fetch_capacity_pipeline.py --no-db` med ekte nettverkstilgang
 og sjekk output/eventuell feilmelding før dette brukes til noe viktig.
 
+Tabellen og søylene viser også **anslåtte arbeidsplasser** per anlegg/sone
+— beregnet på backend (`backend/app/routers/capacity.py`,
+`WIND_JOBS_PER_MW = 0.48`) fra NVEs publiserte anslag om at sysselsettingen
+i et fylke øker med 0,48 arbeidsplasser per ny installert MW landbasert
+vindkraft. Kun beregnet for vindkraft — ingen tilsvarende publisert tall er
+funnet for vannkraft. Koeffisienten skiller ikke tydelig mellom
+midlertidige anleggsjobber og permanente driftsjobber, så tallet er et
+grovt anslag, ikke en målt sysselsettingseffekt — API-et sender alltid med
+en forklarende `jobs_estimate_note` som frontend viser sammen med tallene.
+
 ## Datakilder
 
 | Kilde | Bruk | Krever nøkkel? |

@@ -200,6 +200,7 @@ export interface PipelinePlant {
   zone: string | null;
   installed_effect_mw: number | null;
   expected_commissioning: string | null;
+  estimated_jobs: number | null;
 }
 
 export interface PipelineZoneSummary {
@@ -208,6 +209,7 @@ export interface PipelineZoneSummary {
   under_construction_mw: number;
   concession_granted_mw: number;
   n_plants: number;
+  estimated_jobs: number;
 }
 
 export interface CapacityPipeline {
@@ -215,4 +217,5 @@ export interface CapacityPipeline {
   unmapped_effect_mw: number;
   plants: PipelinePlant[];
   last_updated: string | null;
+  jobs_estimate_note: string;
 }

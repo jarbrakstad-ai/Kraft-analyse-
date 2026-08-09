@@ -6,9 +6,30 @@ from ..zones import NORWEGIAN_ZONES
 
 router = APIRouter(prefix="/capacity", tags=["capacity"])
 
+# Jobs-per-MW coefficient for wind, from NVE's "Verdiskapning" analysis of
+# land-based wind power: employment in a county rose by 0.48 jobs per newly
+# installed MW. No equivalent published figure was found for hydro, so
+# hydro plants get no jobs estimate rather than a guessed one. The 0.48
+# figure itself isn't clearly split into construction-phase vs. permanent
+# operational jobs in what's publicly available — treat this as a rough,
+# single-number estimate, not a precise or verified count.
+WIND_JOBS_PER_MW = 0.48
+JOBS_ESTIMATE_NOTE = (
+    "Anslåtte arbeidsplasser er kun beregnet for vindkraft, basert på NVEs publiserte anslag "
+    f"({WIND_JOBS_PER_MW} arbeidsplasser per ny installert MW i et fylke). Ingen tilsvarende tall er "
+    "funnet for vannkraft. Tallet skiller ikke tydelig mellom midlertidige anleggsjobber og permanente "
+    "driftsjobber — behandle det som et grovt anslag, ikke en målt sysselsettingseffekt."
+)
+
 
 def _is_under_construction(status: str) -> bool:
     return "bygging" in status.lower()
+
+
+def _estimated_jobs(source_type: str, installed_effect_mw: float | None) -> float | None:
+    if source_type != "wind" or installed_effect_mw is None:
+        return None
+    return installed_effect_mw * WIND_JOBS_PER_MW
 
 
 @router.get("/pipeline", response_model=CapacityPipeline)
@@ -37,7 +58,10 @@ def get_capacity_pipeline(
         cur.execute(query, params)
         rows = cur.fetchall()
 
-    plants = [PipelinePlant(**row) for row in rows]
+    plants = [
+        PipelinePlant(**row, estimated_jobs=_estimated_jobs(row["source_type"], row["installed_effect_mw"]))
+        for row in rows
+    ]
 
     zones_to_report = [zone] if zone else NORWEGIAN_ZONES
     summaries = []
@@ -52,6 +76,7 @@ def get_capacity_pipeline(
                 under_construction_mw=under_construction,
                 concession_granted_mw=concession_granted,
                 n_plants=len(zone_plants),
+                estimated_jobs=sum(p.estimated_jobs or 0 for p in zone_plants),
             )
         )
 
@@ -67,4 +92,5 @@ def get_capacity_pipeline(
         unmapped_effect_mw=unmapped_effect_mw,
         plants=plants,
         last_updated=last_updated,
+        jobs_estimate_note=JOBS_ESTIMATE_NOTE,
     )
