@@ -9,10 +9,11 @@ This answers "how much expected effect increase is actually in the
 pipeline per price area" — a fact feed for the kraftutbygging discussion,
 not a forecast. Field-name mapping was confirmed against a live API
 response 2026-08 (see nve/client.py for the exact fields and boolean-flag
-logic used for hydro). The wind endpoint used here (GetWindPowerPlantsInOperation)
-is confirmed live to only cover *operational* plants — it has no status
-field at all — so the wind side of the pipeline will legitimately come
-back empty until a broader wind endpoint is found and wired in.
+logic used for hydro). Wind will always come back empty: NVE's public API
+only exposes an "in operation" wind endpoint, confirmed (both by the
+response shape and by checking NVE's own API docs directly) to have no
+under-construction/concession-granted data available at all — a confirmed
+gap in NVE's public API, not something this script is missing.
 
 No API key needed — NVE's endpoints are public.
 
@@ -119,7 +120,7 @@ def main() -> int:
             entries = client.get_wind_capacity_pipeline()
             print(f"  {len(entries)} wind plants under construction / with granted concession")
             if not entries:
-                print("  (0 is expected if the wind endpoint only covers operational plants — see nve/client.py)")
+                print("  (0 is expected — NVE's API has no wind pipeline data available, see nve/client.py)")
             rows += [("wind", e, _zone_for(e)) for e in entries]
         except NveApiError as exc:
             print(f"  FAILED — {exc}", file=sys.stderr)

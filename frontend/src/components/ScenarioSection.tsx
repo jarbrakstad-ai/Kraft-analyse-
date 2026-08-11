@@ -188,10 +188,10 @@ export function ScenarioSection() {
 
             <div className="prediction-warning" style={{ marginTop: 16 }}>
               <p style={{ margin: "0 0 8px" }}>
-                NVE-integrasjonen er bygget defensivt, men feltnavnene i API-responsen er ikke verifisert mot en reell
-                kjøring i dette miljøet (nettverkstilgang til nve.no var blokkert under utvikling) — se
-                ingest/nve/client.py. Vinddekningen kan også være ufullstendig: kun ett bekreftet API-endepunkt for
-                vindkraft ble funnet, og det dekker mulig bare kraftverk allerede i drift.
+                Vannkraft er verifisert mot NVEs ekte API-respons. Vindkraft vil derimot alltid vise 0 her — NVEs
+                offentlige API har ikke noe endepunkt som dekker vindkraftverk under bygging eller med konsesjon,
+                kun anlegg allerede i drift (bekreftet både i responsen og i NVEs egen API-dokumentasjon). Dette er
+                en reell begrensning i NVEs data, ikke noe som mangler i dette dashbordet.
               </p>
               <p style={{ margin: 0 }}>{pipeline.data.jobs_estimate_note}</p>
             </div>

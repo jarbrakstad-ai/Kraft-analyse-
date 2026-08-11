@@ -11,26 +11,27 @@ All three are public APIs, no key required.
 
 Endpoints:
   - https://biapi.nve.no/magasinstatistikk/api/Magasinstatistikk/HentOffentligData
-  - https://api.nve.no/web/Powerplant/GetHydroPowerPlants (confirmed via
-    NVE's own example script: includes plants under construction and
-    decommissioned, not just operational ones)
+    (confirmed live 2026-08, incl. handling the 'VASS' area type NVE mixes
+    into the response alongside the 'EL'/'NO' ones we track)
+  - https://api.nve.no/web/Powerplant/GetHydroPowerPlants (confirmed live
+    2026-08: includes plants under construction, not just operational
+    ones — status is exposed via boolean flags, not a decodable status
+    string, see PLANT_UNDER_CONSTRUCTION_BOOL_CANDIDATES below)
   - https://api.nve.no/web/WindPowerplant/GetWindPowerPlantsInOperation
-    (confirmed the same way, but — as the name says — only operational
-    plants; NVE's wind power database docs describe also covering
-    concession cases "under processing", but no endpoint for that was
-    found/confirmed from this environment, since api.nve.no was blocked by
-    the network here. Wind pipeline coverage is therefore incomplete until
-    that's checked with live access.)
+    (confirmed live 2026-08 — this is the ONLY wind endpoint NVE's public
+    API documentation (api.nve.no/doc/vindkraftdatabase/) exposes, and it
+    really does only cover operational plants: no status field of any
+    kind is present in its rows. There is currently no way to get
+    under-construction/concession-granted wind capacity from NVE's API —
+    this is a confirmed gap, not an unconfirmed guess.)
 
-IMPORTANT: NONE of this has been verified against a live response —
-outbound network access to nve.no/api.nve.no was blocked in the
-environment this was built in. Field names below are best-effort guesses
-based on NVE's typical naming conventions, not a confirmed schema. Every
-parser here tries a short list of plausible field-name candidates per
-value and raises a clear NveApiError showing the actual keys it found if
-none match, rather than silently mis-mapping data. Run the relevant
-fetch_*.py script and check for that error (and fill in the *_CANDIDATES
-lists below from the real response) before relying on this in production.
+Field names for the two plant endpoints above were confirmed against live
+responses 2026-08 (with real-world test data provided by a user testing
+locally) — see the PLANT_*_CANDIDATES lists below for the exact fields
+used, with unverified guesses kept only as fallbacks. Every parser here
+still validates its assumptions and raises a clear NveApiError showing the
+actual keys/values it found if something doesn't match, rather than
+silently mis-mapping data, in case NVE changes the schema later.
 """
 
 from __future__ import annotations
@@ -284,15 +285,17 @@ class NveClient:
 
     def get_wind_capacity_pipeline(self) -> list[PlantPipelineEntry]:
         """
-        Wind power plants under construction or with a granted concession.
+        Confirmed live 2026-08 to always return an empty list: NVE's
+        public API (api.nve.no/doc/vindkraftdatabase/) only exposes
+        GetWindPowerPlantsInOperation for wind, whose rows have no status
+        field of any kind — checked directly against NVE's own API
+        documentation that no broader endpoint exists. There is currently
+        no way to get under-construction/concession-granted wind capacity
+        from NVE's API; this is a confirmed gap, not an open question.
 
-        NOTE: hits GetWindPowerPlantsInOperation, the only wind endpoint
-        confirmed from this environment. Confirmed live (2026-08) that this
-        endpoint's rows have NO status-like field at all — consistent with
-        it covering only already-operational plants. _parse_plant_rows
-        returns an empty list for this case rather than raising, since it's
-        an expected outcome, not a schema mismatch. If NVE has a broader
-        wind endpoint, swap WIND_PLANTS_URL for it once confirmed.
+        Still makes the real HTTP call (rather than short-circuiting to
+        `[]`) so a cron run surfaces it if the endpoint goes down, and
+        picks up automatically if NVE ever adds status data here.
         """
         rows = self._get(WIND_PLANTS_URL)
         return self._parse_plant_rows(rows)

@@ -438,30 +438,36 @@ kraftutbyggingsdiskusjonen — hva er faktisk vedtatt/i gang, ikke et
 behovs- eller prognosetall som scenario-verktøyet.
 
 Hentes av `fetch_capacity_pipeline.py` fra to NVE-endepunkter
-(`ingest/nve/client.py`):
+(`ingest/nve/client.py`), **verifisert mot ekte API-respons 2026-08**
+(takket være brukertesting mot en levende lokal oppsett — se steg
+"Automatisk ingest" over for hvordan du setter opp det samme selv):
 
-- `GetHydroPowerPlants` — bekreftet (via NVEs eget eksempelscript på
-  GitHub) å inkludere anlegg under bygging, ikke bare de som er i drift.
-- `GetWindPowerPlantsInOperation` — det eneste vindkraft-endepunktet som
-  ble bekreftet herfra; navnet antyder at det **kun** dekker anlegg
-  allerede i drift, så vinddelen av pipelinen kan være ufullstendig inntil
-  et bredere endepunkt er bekreftet med reell nettverkstilgang.
+- `GetHydroPowerPlants` — bekreftet å inkludere anlegg under bygging.
+  Status uttrykkes via boolske felt (`UnderBygging`/`ErIDrift`/
+  `UteAvDrift`), ikke en tekststatus — `Kraftverkstatus` finnes også i
+  responsen, men den kodede betydningen er ikke dokumentert noe sted vi
+  har funnet, så vi bruker de boolske flaggene i stedet.
+- `GetWindPowerPlantsInOperation` — **bekreftet** (både i selve responsen,
+  som mangler ethvert statusfelt, og direkte i NVEs egen
+  API-dokumentasjon på api.nve.no/doc/vindkraftdatabase/) at dette er det
+  **eneste** offentlige vindkraft-endepunktet NVE tilbyr, og at det kun
+  dekker anlegg allerede i drift. Det finnes ingen måte å hente
+  under bygging/konsesjon-data for vindkraft fra NVEs API i dag — dette
+  er en bekreftet begrensning i datakilden, ikke noe som mangler i dette
+  dashbordet.
 
-Sone settes med en grov fylke->sone-tilnærming
-(`ingest/nve/zones.py`, `FYLKE_TO_ZONE`) — bidding zones følger ikke
-fylkesgrenser nøyaktig (Innlandet er det største kjente tilfellet), så
-`zone` kan være feil for anlegg nær en sonegrense. Anlegg med ukjent/
-ukartlagt fylke beholdes med `zone = NULL` og telles i
+Sone settes primært fra `ElspotomraadeNummer` — et felt NVE rapporterer
+direkte på begge endepunktene (bekreftet live), som gir eksakt elspotsone
+uten behov for tilnærming. Fylke->sone-tilnærmingen i `ingest/nve/zones.py`
+(`FYLKE_TO_ZONE`) brukes kun som fallback for de få radene uten dette
+feltet. Anlegg med ukjent sone beholdes med `zone = NULL` og telles i
 `unmapped_effect_mw` i stedet for å forsvinne stille.
 
-**Viktig**: feltnavnene i NVEs JSON-respons (status, effekt, fylke, osv.)
-er **ikke verifisert mot en reell kjøring** — api.nve.no var blokkert av
-nettverksproxyen i miljøet dette ble bygget i. `_parse_plant_rows` i
-`nve/client.py` feiler høylytt med en liste over faktiske nøkler i
-responsen hvis ingen av kandidatnavnene treffer, i stedet for å stille
-mappe feil data — samme mønster som `fetch_reservoir.py` allerede brukte.
-Kjør `python fetch_capacity_pipeline.py --no-db` med ekte nettverkstilgang
-og sjekk output/eventuell feilmelding før dette brukes til noe viktig.
+Underveis ble to reelle bugs funnet og fikset gjennom brukertesting:
+`omrType='VASS'`-rader (en annen geografisk inndeling NVE blander inn i
+magasinstatistikk-responsen) som krasjet reservoir-parsingen, og NVEs bruk
+av sentinelverdier som `-1` for "dato ikke satt" i stedet for `null`, som
+krasjet datoparsingen for idriftsettelsesdato.
 
 Tabellen og søylene viser også **anslåtte arbeidsplasser** per anlegg/sone
 — beregnet på backend (`backend/app/routers/capacity.py`), i to separate
