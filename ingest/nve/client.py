@@ -86,21 +86,31 @@ def _iso_week_monday_utc(year: int, week: int) -> datetime:
 
 
 def _parse_loose_date(value) -> date | None:
-    """Handles the commissioning field being a full date string, an ISO datetime, or just a year (int/str)."""
+    """
+    Handles the commissioning field being a full date string, an ISO
+    datetime, or just a year (int/str). NVE uses sentinel values for
+    "not set" instead of null — confirmed live to include -1 as a year,
+    and '0001-01-01...' has shown up elsewhere in NVE responses (see
+    reservoir parsing) — so anything outside a plausible year range is
+    treated as "no date" rather than raising.
+    """
     if value is None:
         return None
     if isinstance(value, (int, float)):
-        return date(int(value), 1, 1)
+        year = int(value)
+        return date(year, 1, 1) if 1900 <= year <= 2100 else None
     text = str(value).strip()
     if not text:
         return None
     if text.isdigit() and len(text) == 4:
-        return date(int(text), 1, 1)
+        year = int(text)
+        return date(year, 1, 1) if 1900 <= year <= 2100 else None
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
         try:
-            return datetime.strptime(text[: len(fmt) + 2], fmt).date()
+            parsed = datetime.strptime(text[: len(fmt) + 2], fmt).date()
         except ValueError:
             continue
+        return parsed if parsed.year >= 1900 else None
     return None
 
 
