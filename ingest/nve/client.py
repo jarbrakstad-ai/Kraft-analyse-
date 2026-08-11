@@ -256,13 +256,23 @@ class NveClient:
         return entries
 
     @staticmethod
-    def _zone_from_row(row: dict) -> str:
+    def _zone_from_row(row: dict) -> str | None:
+        """
+        Returns None (skip this row) for area types we don't track — NVE's
+        Magasinstatistikk feed mixes several parallel regional breakdowns
+        in one response, confirmed live: 'EL' (elspot bidding zone, paired
+        with a numeric omrnr 1-5), 'NO' (national aggregate), and also
+        'VASS' (vassdragsområde / hydrological catchment area — a finer,
+        unrelated regional split NVE also publishes here). We only want
+        EL and NO; anything else is silently skipped rather than treated
+        as a schema error, since NVE may add further area types over time.
+        """
         area_type = row.get(FIELD_AREA_TYPE)
         if area_type == "EL":
             return f"NO{row[FIELD_AREA_NR]}"
         if area_type == "NO":
             return "NO"
-        raise NveApiError(f"Unknown '{FIELD_AREA_TYPE}' value '{area_type}' in NVE row: {row}")
+        return None
 
     @classmethod
     def _parse_rows(cls, rows: list[dict]) -> list[ReservoirPoint]:
@@ -282,6 +292,8 @@ class NveClient:
         for row in rows:
             try:
                 zone = cls._zone_from_row(row)
+                if zone is None:
+                    continue
                 week_start = _iso_week_monday_utc(int(row[FIELD_YEAR]), int(row[FIELD_WEEK]))
                 fill_fraction = row[FIELD_FILL_FRACTION]
                 if fill_fraction is None:
