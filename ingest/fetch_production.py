@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 
 from entsoe.client import EntsoeApiError, EntsoeClient, ProductionPoint
 from entsoe.zones import DEFAULT_ZONES, ZONES
+from util import dedupe_by_key
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 
@@ -98,6 +99,7 @@ def main() -> int:
     print(f"Fetching actual generation per type for {args.zones} from {period_start} to {period_end}")
     client = EntsoeClient(api_key=api_key)
     points = fetch_all(client, args.zones, period_start, period_end)
+    points = dedupe_by_key(points, key_fn=lambda p: (p.zone, p.timestamp_utc, p.production_type))
 
     if not points:
         print("No production points fetched — nothing to write.", file=sys.stderr)

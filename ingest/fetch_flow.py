@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 
 from entsoe.client import EntsoeApiError, EntsoeClient, FlowPoint
 from entsoe.interconnectors import INTERCONNECTOR_ZONE_EIC, INTERCONNECTORS
+from util import dedupe_by_key
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 
@@ -108,6 +109,7 @@ def main() -> int:
     print(f"Fetching cross-border flow for {args.interconnectors} from {period_start} to {period_end}")
     client = EntsoeClient(api_key=api_key)
     results = fetch_all(client, args.interconnectors, period_start, period_end)
+    results = dedupe_by_key(results, key_fn=lambda r: (r[1].from_zone, r[1].to_zone, r[1].timestamp_utc))
 
     if not results:
         print("No flow points fetched — nothing to write.", file=sys.stderr)
