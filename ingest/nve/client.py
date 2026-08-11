@@ -77,6 +77,7 @@ class PlantPipelineEntry:
     county: str | None
     installed_effect_mw: float | None
     expected_commissioning: date | None
+    elspot_zone: str | None  # e.g. 'NO3', straight from NVE's ElspotomraadeNummer — confirmed live, prefer over county mapping
 
 
 def _iso_week_monday_utc(year: int, week: int) -> datetime:
@@ -103,25 +104,42 @@ def _parse_loose_date(value) -> date | None:
     return None
 
 
-# Candidate JSON key names per value, tried in order, for the hydro/wind
-# plant endpoints — see the module docstring for why these are guesses
-# rather than a confirmed schema. Norwegian and English variants included
-# since NVE's APIs mix both conventions across different endpoints.
-PLANT_ID_CANDIDATES = ["VannkraftverkNr", "VindkraftverkNr", "AnleggNr", "Nr", "Id", "ID"]
+# Candidate JSON key names per value, tried in order. Confirmed live against
+# GetHydroPowerPlants and GetWindPowerPlantsInOperation (see comments below)
+# — candidates not seen live are kept as fallbacks in case NVE's other
+# plant-type endpoints (not yet queried) use different names.
+#
+# Live hydro (GetHydroPowerPlants) fields include: VannKraftverkID, Navn,
+# Kraftverkstatus, UnderBygging, ErIDrift, UteAvDrift, Fylke, Kommune,
+# MaksYtelse, ElspotomraadeNummer, SPSone, ForsteUtnyttelseAvFalletDato,
+# IDriftDato, ...
+#
+# Live wind (GetWindPowerPlantsInOperation) fields include: VindkraftAnleggId,
+# Navn, Fylke, Kommune, InstallertEffekt_MW, ElspotomraadeNummer,
+# IdriftsettelseForsteByggetrinn, ... — notably NO status field at all,
+# confirming this endpoint really does only cover operational plants (see
+# get_wind_capacity_pipeline docstring).
+PLANT_ID_CANDIDATES = ["VannKraftverkID", "VindkraftAnleggId", "VannkraftverkNr", "VindkraftverkNr", "AnleggNr", "Nr", "Id", "ID"]
 PLANT_NAME_CANDIDATES = ["Navn", "Name", "VerkNavn", "AnleggNavn"]
-PLANT_STATUS_CANDIDATES = ["Status", "StatusVerk", "Konsesjonsstatus", "AnleggsStatus"]
+PLANT_STATUS_CANDIDATES = ["Kraftverkstatus", "Status", "StatusVerk", "Konsesjonsstatus", "AnleggsStatus"]
 PLANT_MUNICIPALITY_CANDIDATES = ["Kommune", "KommuneNavn", "Municipality"]
 PLANT_COUNTY_CANDIDATES = ["Fylke", "FylkeNavn", "County"]
+# Elspot bidding zone, reported directly as a number (1-5) — confirmed live
+# on BOTH endpoints. Preferred over the county->zone approximation in
+# nve/zones.py whenever present.
+PLANT_ELSPOT_ZONE_CANDIDATES = ["ElspotomraadeNummer", "SPSone"]
 PLANT_EFFECT_MW_CANDIDATES = [
+    "MaksYtelse",  # hydro, confirmed live
+    "InstallertEffekt_MW",  # wind, confirmed live
     "PaInstallertEffekt_MW",
-    "InstallertEffekt_MW",
-    "MaksYtelse",
     "SystemMaksYtelse",
     "Effekt_MW",
     "EffektMW",
     "InstalledCapacityMW",
 ]
 PLANT_COMMISSIONING_CANDIDATES = [
+    "IdriftsettelseForsteByggetrinn",  # wind, confirmed live
+    "ForsteUtnyttelseAvFalletDato",  # hydro, confirmed live (approximate — "first use of the falls")
     "ForventetIdriftsettelse",
     "PlanlagtIdriftsettelse",
     "IdriftAar",
@@ -129,9 +147,20 @@ PLANT_COMMISSIONING_CANDIDATES = [
     "ExpectedCommissioning",
 ]
 
-# Status values that mean "not yet operational, but committed" — matched by
-# case-insensitive substring, not exact string, so small wording variations
-# in the real API don't silently fall through as "unmatched".
+# Boolean flags confirmed live on the hydro endpoint — a much more reliable
+# signal than string-matching a status field whose value coding (e.g. what
+# Kraftverkstatus's raw values actually mean) isn't documented anywhere we
+# could verify. Used in preference to PIPELINE_STATUS_SUBSTRINGS whenever
+# present; falls back to string matching for endpoints that don't have
+# these flags.
+PLANT_UNDER_CONSTRUCTION_BOOL_CANDIDATES = ["UnderBygging"]
+PLANT_IN_OPERATION_BOOL_CANDIDATES = ["ErIDrift"]
+PLANT_OUT_OF_OPERATION_BOOL_CANDIDATES = ["UteAvDrift"]
+
+# Status text values that mean "not yet operational, but committed" —
+# matched by case-insensitive substring, not exact string, so small
+# wording variations don't silently fall through as "unmatched". Only used
+# as a fallback when none of the boolean flags above are present.
 PIPELINE_STATUS_SUBSTRINGS = ["bygging", "konsesjon"]
 # ...but never count a project already in the "avslått" (rejected) bucket,
 # even if its status string also happens to contain "konsesjon" somewhere
@@ -146,11 +175,52 @@ def _first_present(row: dict, candidates: list[str]):
     return None
 
 
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in ("true", "1", "ja", "yes")
+
+
 def _is_pipeline_status(status: str) -> bool:
     s = status.lower()
     if any(bad in s for bad in REJECTED_STATUS_SUBSTRINGS):
         return False
     return any(good in s for good in PIPELINE_STATUS_SUBSTRINGS)
+
+
+def _pipeline_flag_and_status(row: dict) -> tuple[bool, str] | None:
+    """
+    Returns (is_pipeline, display_status) for a plant row, or None if the
+    row has neither the boolean flags nor a recognizable status field —
+    meaning this endpoint just doesn't expose the info we need (e.g. the
+    wind "in operation only" endpoint).
+    """
+    under_construction_raw = _first_present(row, PLANT_UNDER_CONSTRUCTION_BOOL_CANDIDATES)
+    if under_construction_raw is not None:
+        under_construction = _as_bool(under_construction_raw)
+        in_operation = _as_bool(_first_present(row, PLANT_IN_OPERATION_BOOL_CANDIDATES) or False)
+        out_of_operation = _as_bool(_first_present(row, PLANT_OUT_OF_OPERATION_BOOL_CANDIDATES) or False)
+        is_pipeline = under_construction and not in_operation and not out_of_operation
+        return is_pipeline, ("Under bygging" if under_construction else "Ikke under bygging")
+
+    status = _first_present(row, PLANT_STATUS_CANDIDATES)
+    if status is not None:
+        return _is_pipeline_status(str(status)), str(status)
+
+    return None
+
+
+def _elspot_zone_from_row(row: dict) -> str | None:
+    raw = _first_present(row, PLANT_ELSPOT_ZONE_CANDIDATES)
+    if raw is None:
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return f"NO{n}" if 1 <= n <= 5 else None
 
 
 class NveClient:
@@ -191,8 +261,13 @@ class NveClient:
 
     def get_hydro_capacity_pipeline(self) -> list[PlantPipelineEntry]:
         """
-        Hydro power plants under construction or with a granted concession
-        (not yet in operation), from NVE's hydro power plant database.
+        Hydro power plants under construction (not yet in operation), from
+        NVE's hydro power plant database. Confirmed live to use boolean
+        flags (UnderBygging/ErIDrift/UteAvDrift) rather than a decodable
+        status string — see _pipeline_flag_and_status. Note: no confirmed
+        way to separately identify "concession granted, construction not
+        yet started" for hydro from this endpoint — only "under
+        construction" is reliably detected.
         """
         rows = self._get(HYDRO_PLANTS_URL)
         return self._parse_plant_rows(rows)
@@ -202,11 +277,12 @@ class NveClient:
         Wind power plants under construction or with a granted concession.
 
         NOTE: hits GetWindPowerPlantsInOperation, the only wind endpoint
-        confirmed from this environment (see module docstring) — it may
-        only return operational plants, in which case this will come back
-        empty (every row filtered out by _is_pipeline_status) rather than
-        wrong. If NVE has a broader wind endpoint, swap WIND_PLANTS_URL
-        for it once confirmed.
+        confirmed from this environment. Confirmed live (2026-08) that this
+        endpoint's rows have NO status-like field at all — consistent with
+        it covering only already-operational plants. _parse_plant_rows
+        returns an empty list for this case rather than raising, since it's
+        an expected outcome, not a schema mismatch. If NVE has a broader
+        wind endpoint, swap WIND_PLANTS_URL for it once confirmed.
         """
         rows = self._get(WIND_PLANTS_URL)
         return self._parse_plant_rows(rows)
@@ -217,17 +293,24 @@ class NveClient:
             return []
 
         first = rows[0]
-        if _first_present(first, PLANT_STATUS_CANDIDATES) is None:
+        if _first_present(first, PLANT_ID_CANDIDATES) is None or _first_present(first, PLANT_NAME_CANDIDATES) is None:
             raise NveApiError(
-                f"NVE plant response schema doesn't match expected fields — no status field found "
-                f"among candidates {PLANT_STATUS_CANDIDATES}. Actual keys in first row: {sorted(first.keys())}. "
+                f"NVE plant response schema doesn't match expected fields — no id/name field found "
+                f"among candidates {PLANT_ID_CANDIDATES} / {PLANT_NAME_CANDIDATES}. "
+                f"Actual keys in first row: {sorted(first.keys())}. "
                 f"Update the PLANT_*_CANDIDATES lists in nve/client.py to match."
             )
 
         entries: list[PlantPipelineEntry] = []
         for row in rows:
-            status = _first_present(row, PLANT_STATUS_CANDIDATES)
-            if status is None or not _is_pipeline_status(str(status)):
+            flag_and_status = _pipeline_flag_and_status(row)
+            if flag_and_status is None:
+                # No status info at all in this row (e.g. the wind
+                # "in operation only" endpoint) — not a schema error, just
+                # means this endpoint can't tell us anything pipeline-wise.
+                continue
+            is_pipeline, status = flag_and_status
+            if not is_pipeline:
                 continue
 
             plant_id = _first_present(row, PLANT_ID_CANDIDATES)
@@ -250,6 +333,7 @@ class NveClient:
                     county=_first_present(row, PLANT_COUNTY_CANDIDATES),
                     installed_effect_mw=float(effect_raw) if effect_raw is not None else None,
                     expected_commissioning=_parse_loose_date(commissioning_raw),
+                    elspot_zone=_elspot_zone_from_row(row),
                 )
             )
 

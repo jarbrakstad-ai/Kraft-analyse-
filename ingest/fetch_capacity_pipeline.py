@@ -7,12 +7,12 @@ a local CSV file under ingest/output/.
 
 This answers "how much expected effect increase is actually in the
 pipeline per price area" — a fact feed for the kraftutbygging discussion,
-not a forecast. See nve/client.py's module docstring for important
-caveats: the field-name mapping is unverified against a live API response
-(network access to nve.no was blocked while this was built), and the wind
-endpoint used here is only confirmed to cover *operational* plants, so the
-wind side of the pipeline may come back empty until a broader endpoint is
-confirmed.
+not a forecast. Field-name mapping was confirmed against a live API
+response 2026-08 (see nve/client.py for the exact fields and boolean-flag
+logic used for hydro). The wind endpoint used here (GetWindPowerPlantsInOperation)
+is confirmed live to only cover *operational* plants — it has no status
+field at all — so the wind side of the pipeline will legitimately come
+back empty until a broader wind endpoint is found and wired in.
 
 No API key needed — NVE's endpoints are public.
 
@@ -35,6 +35,11 @@ from nve.client import NveApiError, NveClient, PlantPipelineEntry
 from nve.zones import zone_from_county
 
 OUTPUT_DIR = Path(__file__).parent / "output"
+
+
+def _zone_for(entry: PlantPipelineEntry) -> str | None:
+    """Prefer NVE's own elspot zone number (confirmed live, exact) over the county->zone approximation."""
+    return entry.elspot_zone or zone_from_county(entry.county)
 
 
 def write_csv(rows: list[tuple[str, PlantPipelineEntry, str | None]], path: Path) -> None:
@@ -104,7 +109,7 @@ def main() -> int:
         try:
             entries = client.get_hydro_capacity_pipeline()
             print(f"  {len(entries)} hydro plants under construction / with granted concession")
-            rows += [("hydro", e, zone_from_county(e.county)) for e in entries]
+            rows += [("hydro", e, _zone_for(e)) for e in entries]
         except NveApiError as exc:
             print(f"  FAILED — {exc}", file=sys.stderr)
 
@@ -115,7 +120,7 @@ def main() -> int:
             print(f"  {len(entries)} wind plants under construction / with granted concession")
             if not entries:
                 print("  (0 is expected if the wind endpoint only covers operational plants — see nve/client.py)")
-            rows += [("wind", e, zone_from_county(e.county)) for e in entries]
+            rows += [("wind", e, _zone_for(e)) for e in entries]
         except NveApiError as exc:
             print(f"  FAILED — {exc}", file=sys.stderr)
 
