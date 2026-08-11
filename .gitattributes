@@ -1,0 +1,7 @@
+# Force LF line endings for files that run inside Linux containers,
+# regardless of the checkout platform's line-ending conventions (Windows
+# git installs often default to converting to CRLF on checkout, which
+# breaks scripts/config files parsed by strict Linux tools like `crontab`).
+*.sh text eol=lf
+ops/scheduler/crontab text eol=lf
+Dockerfile text eol=lf

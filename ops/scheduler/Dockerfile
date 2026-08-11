@@ -14,9 +14,14 @@ COPY ingest ./ingest
 COPY backend/app ./backend/app
 
 COPY ops/scheduler/crontab /etc/cron.d/kraft-analyse
-RUN chmod 0644 /etc/cron.d/kraft-analyse && crontab /etc/cron.d/kraft-analyse
+# Strip any CRLF line endings before installing — Windows checkouts (git's
+# core.autocrlf) can turn this into CRLF, which `crontab` rejects with a
+# bare "exit code: 1" and no useful message. sed here makes the build work
+# regardless of what line endings the file had on disk.
+RUN sed -i 's/\r$//' /etc/cron.d/kraft-analyse \
+    && chmod 0644 /etc/cron.d/kraft-analyse && crontab /etc/cron.d/kraft-analyse
 
 COPY ops/scheduler/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]
